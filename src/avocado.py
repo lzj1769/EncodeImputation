@@ -6,11 +6,12 @@
 from __future__ import print_function
 
 import os
+import sys
 import numpy as np
 from keras.models import Model
 from keras.layers import Input, Embedding, Flatten, Dense, concatenate
 from keras.layers import Dropout
-from keras.utils import plot_model
+from keras.callbacks import ModelCheckpoint
 import argparse
 import itertools
 
@@ -19,7 +20,7 @@ from utils import *
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", type=int, default=4096)
+    parser.add_argument("--chrom", type=str, default=None)
 
     return parser.parse_args()
 
@@ -135,32 +136,40 @@ def get_data(celltypes, assays, chrom):
 
 
 def main():
+    args = parse_args()
+
+    assert args.chrom is not None, "please choose a chromosome..."
+
     celltypes, assays = get_cell_assays()
 
-    for chrom in chrom_list:
-        chrom_size = chrom_size_dict[chrom]
+    chrom_size = chrom_size_dict[args.chrom]
 
-        model = build_model(n_celltypes=len(celltypes),
-                            n_assays=len(assays),
-                            n_genomic_positions=chrom_size)
+    model = build_model(n_celltypes=len(celltypes),
+                        n_assays=len(assays),
+                        n_genomic_positions=chrom_size)
 
-        model.compile(optimizer="adam", loss="mse")
+    model.compile(optimizer="adam", loss="mse")
 
-        data = get_data(celltypes=celltypes,
-                        assays=assays,
-                        chrom=chrom)
+    data = get_data(celltypes=celltypes,
+                    assays=assays,
+                    chrom=args.chrom)
 
-        x_train = data_generator(celltypes=celltypes,
-                                 assays=assays,
-                                 data=data,
-                                 n_positions=chrom_size,
-                                 batch_size=4096)
+    x_train = data_generator(celltypes=celltypes,
+                             assays=assays,
+                             data=data,
+                             n_positions=chrom_size,
+                             batch_size=4096)
 
-        history = model.fit_generator(generator=x_train,
-                                      verbose=1,
-                                      epochs=2)
+    filepath = os.path.join(model_loc, "avocado.{}.h5".format(args.chrom))
+    model_checkpoint = ModelCheckpoint(filepath=filepath,
+                                       save_best_only=True,
+                                       verbose=1)
 
-        exit(0)
+    history = model.fit_generator(generator=x_train,
+                                  verbose=2,
+                                  epochs=100,
+                                  steps_per_epoch=2000,
+                                  callbacks=[model_checkpoint])
 
 
 if __name__ == '__main__':

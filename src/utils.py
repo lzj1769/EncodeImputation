@@ -4,6 +4,8 @@ training_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/input/training_data
 validation_data_csv = "/hpcwork/izkf/projects/ENCODEImputation/data/validation_data/metadata_validation_data.tsv"
 validation_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/input/validation_data"
 
+model_loc = "/hpcwork/izkf/projects/ENCODEImputation/model"
+
 # We restrict this challenge to chromosomes 1-22 and
 # chromosome X (i.e. ignore any data on chrY and chrM)
 chrom_list = ['chr1', 'chr2', 'chr3',
