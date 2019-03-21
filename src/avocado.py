@@ -142,13 +142,15 @@ def main():
 
     celltypes, assays = get_cell_assays()
 
+    assays = assays[:5]
+
     chrom_size = chrom_size_dict[args.chrom]
 
     model = build_model(n_celltypes=len(celltypes),
                         n_assays=len(assays),
                         n_genomic_positions=chrom_size)
 
-    model.compile(optimizer="adam", loss="mse")
+    model.compile(optimizer="sgd", loss="mse")
 
     data = get_data(celltypes=celltypes,
                     assays=assays,
@@ -158,7 +160,7 @@ def main():
                              assays=assays,
                              data=data,
                              n_positions=chrom_size,
-                             batch_size=4096)
+                             batch_size=10)
 
     filepath = os.path.join(model_loc, "avocado.{}.h5".format(args.chrom))
     model_checkpoint = ModelCheckpoint(filepath=filepath,
