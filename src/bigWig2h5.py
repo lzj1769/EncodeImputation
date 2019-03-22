@@ -12,7 +12,7 @@ import numpy as np
 import h5py
 import argparse
 
-from utils import *
+from configure import *
 
 
 def parse_args():
@@ -29,6 +29,8 @@ def main():
     output_filename = os.path.join(training_data_loc, "{}.h5".format(args.chrom))
     out_f = h5py.File(output_filename, "w")
 
+    chrom_size = chrom_size_dict[args.chrom]
+
     f = open(training_data_csv)
     f.readline()
     for line in f.readlines():
@@ -37,9 +39,14 @@ def main():
         assay_type = ll[4]
         filename = ll[-1]
 
+        print("loading data from {}...".format(filename), file=sys.stderr)
+
         input_filename = os.path.join("/hpcwork/izkf/projects/ENCODEImputation/data/training_data", filename)
         bw = pyBigWig.open(input_filename)
-        data = bw.values(args.chrom, 0, bw.chroms()[args.chrom], numpy=True)
+        data = bw.values(args.chrom, 0, chrom_size, numpy=True)
+
+        # convert NANs to zeros
+        data = np.nan_to_num(data)
 
         m = data.shape[0] // 25
         y = np.zeros(m)
@@ -63,9 +70,14 @@ def main():
         assay_type = ll[4]
         filename = ll[-1]
 
+        print("loading data from {}...".format(filename), file=sys.stderr)
+
         input_filename = os.path.join("/hpcwork/izkf/projects/ENCODEImputation/data/validation_data", filename)
         bw = pyBigWig.open(input_filename)
-        data = bw.values(args.chrom, 0, bw.chroms()[args.chrom], numpy=True)
+        data = bw.values(args.chrom, 0, chrom_size, numpy=True)
+
+        # convert NANs to zeros
+        data = np.nan_to_num(data)
 
         m = data.shape[0] // 25
         y = np.zeros(m)

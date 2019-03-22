@@ -8,9 +8,15 @@ from __future__ import print_function
 import os
 import numpy as np
 import h5py
-from keras.models import Model, Sequential
+import matplotlib
+
+matplotlib.use("agg")
+import matplotlib.pyplot as plt
+from keras.models import Model
 from keras.layers import Input, Embedding, Flatten, Dense, concatenate
 from keras.layers import Dropout
+from keras.utils import Sequence
+from keras.callbacks import ModelCheckpoint
 import argparse
 
 from utils import *
@@ -19,14 +25,15 @@ from configure import *
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--chrom", type=str, default=None)
-    parser.add_argument("--batch_size", type=int, default=4096)
-    parser.add_argument("--epochs", type=int, default=500)
+    parser.add_argument("-c", "--chrom", type=str, default=None)
+    parser.add_argument("-bs", "--batch_size", type=int, default=40960)
+    parser.add_argument("-e", "--epochs", type=int, default=10)
+    parser.add_argument("-v", "--verbose", type=int, default=2)
 
     return parser.parse_args()
 
 
-class DataGenerator(Sequential):
+class DataGenerator(Sequence):
     'Generates data for Keras'
 
     def __init__(self, cell_types, assays, chrom_size, batch_size, data, window_size=25, shuffle=True):
@@ -52,9 +59,10 @@ class DataGenerator(Sequential):
         # Generate indexes of the batch
         indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
 
-        celltype_idxs = np.zeros(len(indexes), dtype='int32')
-        assay_idxs = np.zeros(len(indexes), dtype='int32')
-        genomic_25bp_idxs = np.zeros(len(indexes), dtype='int32')
+        celltype_idxs = np.zeros(len(indexes), dtype=np.int32)
+        assay_idxs = np.zeros(len(indexes), dtype=np.int32)
+        genomic_25bp_idxs = np.zeros(len(indexes), dtype=np.int32)
+
         y = np.zeros(len(indexes), dtype=np.float32)
 
         for i, index in enumerate(indexes):
@@ -66,7 +74,7 @@ class DataGenerator(Sequential):
             cell, assay = cell_assays.split(".")
 
             celltype_idxs[i] = self.cell_types.index(cell)
-            assay_idxs[i] = self.assays.index(cell)
+            assay_idxs[i] = self.assays.index(assay)
             genomic_25bp_idxs[i] = position_index
 
             y[i] = self.data[cell_assays][position_index]
@@ -91,41 +99,9 @@ class DataGenerator(Sequential):
             np.random.shuffle(self.indexes)
 
 
-#
-# def data_generator(celltypes, assays, data, n_positions, batch_size):
-#     while True:
-#         celltype_idxs = np.zeros(batch_size, dtype='int32')
-#         assay_idxs = np.zeros(batch_size, dtype='int32')
-#         genomic_25bp_idxs = np.random.randint(n_positions, size=batch_size)
-#         genomic_250bp_idxs = genomic_25bp_idxs // 10
-#         genomic_5kbp_idxs = genomic_25bp_idxs // 200
-#         value = np.zeros(batch_size)
-#
-#         keys = data.keys()
-#         idxs = np.random.randint(len(data), size=batch_size)
-#
-#         for i, idx in enumerate(idxs):
-#             celltype, assay = keys[idx]
-#             track = data[(celltype, assay)]
-#
-#             celltype_idxs[i] = celltypes.index(celltype)
-#             assay_idxs[i] = assays.index(assay)
-#             value[i] = track[genomic_25bp_idxs[i]]
-#
-#         d = {
-#             'celltype_input': celltype_idxs,
-#             'assay_input': assay_idxs,
-#             'genome_25bp_input': genomic_25bp_idxs,
-#             'genome_250bp_input': genomic_250bp_idxs,
-#             'genome_5kbp_input': genomic_5kbp_idxs
-#         }
-#
-#         yield d, value
-
-
 def build_model(n_celltypes, n_assays, n_genomic_positions,
-                n_celltype_factors=25,
-                n_assay_factors=25,
+                n_celltype_factors=10,
+                n_assay_factors=5,
                 n_25bp_factors=25,
                 n_250bp_factors=30,
                 n_5kbp_factors=45,
@@ -177,34 +153,65 @@ def main():
 
     assert args.chrom is not None, "please choose a chromosome..."
 
-    cell_types, assays = get_cell_assays()
-
-    assays = assays[:2]
+    cell_types, assays = get_train_cell_assays()
 
     chrom_size = chrom_size_dict[args.chrom]
+    n_genomic_positions = chrom_size // 25
 
     model = build_model(n_celltypes=len(cell_types),
                         n_assays=len(assays),
-                        n_genomic_positions=chrom_size // 25)
+                        n_genomic_positions=n_genomic_positions)
 
     model.compile(optimizer="adam", loss="mse")
     model.summary()
 
     input_filename = os.path.join(training_data_loc, "{}.h5".format(args.chrom))
-    data = h5py.File(input_filename, 'r')
+    training_data = dict()
+    with h5py.File(input_filename, 'r') as f:
+        for key in f.iterkeys():
+            training_data[key] = f[key][:]
 
-    data_generator = DataGenerator(cell_types=cell_types,
-                                   assays=assays,
-                                   chrom_size=chrom_size,
-                                   batch_size=args.batch_size,
-                                   data=data)
+    input_filename = os.path.join(validation_data_loc, "{}.h5".format(args.chrom))
+    validation_data = dict()
+    with h5py.File(input_filename, 'r') as f:
+        for key in f.iterkeys():
+            validation_data[key] = f[key][:]
 
-    history = model.fit_generator(generator=data_generator,
-                                  verbose=2,
+    train_generator = DataGenerator(cell_types=cell_types,
+                                    assays=assays,
+                                    chrom_size=chrom_size,
+                                    batch_size=args.batch_size,
+                                    data=training_data,
+                                    shuffle=True)
+
+    valid_generator = DataGenerator(cell_types=cell_types,
+                                    assays=assays,
+                                    chrom_size=chrom_size,
+                                    batch_size=args.batch_size,
+                                    data=validation_data,
+                                    shuffle=False)
+
+    model_filename = os.path.join(model_loc, "avocado.{}.h5".format(args.chrom))
+    model_checkpoint = ModelCheckpoint(filepath=model_filename)
+
+    history = model.fit_generator(generator=train_generator,
+                                  validation_data=valid_generator,
+                                  verbose=args.verbose,
                                   epochs=args.epochs,
                                   use_multiprocessing=True,
-                                  workers=10,
-                                  max_queue_size=20)
+                                  workers=24,
+                                  max_queue_size=1000,
+                                  callbacks=[model_checkpoint])
+
+    # summarize history for loss
+    plt.plot(history.history['loss'])
+    plt.plot(history.history['val_loss'])
+    plt.title('model loss')
+    plt.ylabel('loss')
+    plt.xlabel('epoch')
+    plt.legend(['train', 'test'], loc='upper left')
+    output_filename = os.path.join("/home/rs619065/EncodeImputation/vis", "avocado.{}.pdf".format(args.chrom))
+    plt.savefig(output_filename)
 
 
 if __name__ == '__main__':

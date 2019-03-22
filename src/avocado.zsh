@@ -33,4 +33,4 @@ export CUDA_VISIBLE_DEVICES=0,1
 
 nvidia-smi
 
-python avocado.py --chrom $1
+python avocado.py -c $1
