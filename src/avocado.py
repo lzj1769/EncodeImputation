@@ -6,18 +6,25 @@
 from __future__ import print_function
 
 import os
+import sys
 import numpy as np
 import h5py
+import argparse
+import warnings
+
 import matplotlib
 
 matplotlib.use("agg")
 import matplotlib.pyplot as plt
+
 from keras.models import Model
 from keras.layers import Input, Embedding, Flatten, Dense, concatenate
 from keras.layers import Dropout
 from keras.utils import Sequence
-from keras.callbacks import ModelCheckpoint
-import argparse
+from keras.utils.io_utils import h5dict
+from keras.callbacks import Callback
+from keras.engine.saving import _serialize_model
+from keras.utils.multi_gpu_utils import multi_gpu_model
 
 from utils import *
 from configure import *
@@ -27,7 +34,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--chrom", type=str, default=None)
     parser.add_argument("-bs", "--batch_size", type=int, default=40960)
-    parser.add_argument("-e", "--epochs", type=int, default=10)
+    parser.add_argument("-e", "--epochs", type=int, default=25)
     parser.add_argument("-v", "--verbose", type=int, default=2)
 
     return parser.parse_args()
@@ -36,17 +43,15 @@ def parse_args():
 class DataGenerator(Sequence):
     'Generates data for Keras'
 
-    def __init__(self, cell_types, assays, chrom_size, batch_size, data, window_size=25, shuffle=True):
+    def __init__(self, cell_types, assays, n_positions, batch_size, data, shuffle=True):
         super(DataGenerator, self).__init__()
         self.cell_types = cell_types
         self.assays = assays
-        self.chrom_size = chrom_size
+        self.n_positions = n_positions
         self.batch_size = batch_size
         self.data = data
-        self.window_size = window_size
         self.shuffle = shuffle
-        self.n_positions = chrom_size // window_size
-        self.cell_assays = data.keys()
+        self.cell_assays = self.data.keys()
         self.indexes = np.arange(len(self.cell_assays) * self.n_positions)
 
         if self.shuffle:
@@ -99,9 +104,57 @@ class DataGenerator(Sequence):
             np.random.shuffle(self.indexes)
 
 
+class MultiGPUModelCheckpoint(Callback):
+    """Additional keyword args are passed to ModelCheckpoint; see those docs for information on what args are accepted.
+    https://github.com/TextpertAi/alt-model-checkpoint/blob/master/alt_model_checkpoint/__init__.py
+    """
+
+    def __init__(self,
+                 filepath=None,
+                 model_to_save=None,
+                 best=np.Inf,
+                 monitor='val_loss'):
+        super(MultiGPUModelCheckpoint, self).__init__()
+        self.filepath = filepath
+        self.model_to_save = model_to_save
+        self.best = best
+        self.monitor = monitor
+        self.monitor_op = np.less
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        filepath = self.filepath.format(epoch=epoch + 1, **logs)
+        current = logs.get(self.monitor)
+
+        if current is None:
+            warnings.warn('Can save best model only with %s available, '
+                          'skipping.' % self.monitor, RuntimeWarning)
+        else:
+            if self.monitor_op(current, self.best):
+                print('\nEpoch %05d: %s improved from %0.8f to %0.8f,'
+                      ' saving model to %s'
+                      % (epoch + 1, self.monitor, self.best,
+                         current, filepath), file=sys.stdout)
+                self.best = current
+
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+
+                try:
+                    f = h5dict(filepath, mode='w')
+                    _serialize_model(self.model_to_save, f, include_optimizer=True)
+                    f.close()
+                except:
+                    print("There is something wrong with saving model, will skip it", file=sys.stderr)
+
+            else:
+                print('\nEpoch %05d: %s did not improve from %0.8f' %
+                      (epoch + 1, self.monitor, self.best), file=sys.stdout)
+
+
 def build_model(n_celltypes, n_assays, n_genomic_positions,
                 n_celltype_factors=10,
-                n_assay_factors=5,
+                n_assay_factors=10,
                 n_25bp_factors=25,
                 n_250bp_factors=30,
                 n_5kbp_factors=45,
@@ -133,15 +186,14 @@ def build_model(n_celltypes, n_assays, n_genomic_positions,
     genome_5kbp = Flatten()(genome_5kbp_embedding(genome_5kbp_input))
 
     layers = [celltype, assay, genome_25bp, genome_250bp, genome_5kbp]
-    inputs = (celltype_input, assay_input, genome_25bp_input,
-              genome_250bp_input, genome_5kbp_input)
+    inputs = (celltype_input, assay_input, genome_25bp_input, genome_250bp_input, genome_5kbp_input)
 
     x = concatenate(layers)
     for i in range(n_layers):
         x = Dense(n_nodes, activation='relu', name="dense_{}".format(i))(x)
         x = Dropout(0.5)(x)
 
-    outputs = Dense(1, name="y_pred")(x)
+    outputs = Dense(1, activation='relu', name="y_pred")(x)
 
     model = Model(inputs=inputs, outputs=outputs)
 
@@ -158,12 +210,8 @@ def main():
     chrom_size = chrom_size_dict[args.chrom]
     n_genomic_positions = chrom_size // 25
 
-    model = build_model(n_celltypes=len(cell_types),
-                        n_assays=len(assays),
-                        n_genomic_positions=n_genomic_positions)
-
-    model.compile(optimizer="adam", loss="mse")
-    model.summary()
+    print("load training and validation data...", file=sys.stderr)
+    print("===========================================================================\n", file=sys.stderr)
 
     input_filename = os.path.join(training_data_loc, "{}.h5".format(args.chrom))
     training_data = dict()
@@ -179,29 +227,38 @@ def main():
 
     train_generator = DataGenerator(cell_types=cell_types,
                                     assays=assays,
-                                    chrom_size=chrom_size,
+                                    n_positions=n_genomic_positions,
                                     batch_size=args.batch_size,
                                     data=training_data,
                                     shuffle=True)
 
     valid_generator = DataGenerator(cell_types=cell_types,
                                     assays=assays,
-                                    chrom_size=chrom_size,
+                                    n_positions=n_genomic_positions,
                                     batch_size=args.batch_size,
                                     data=validation_data,
                                     shuffle=False)
 
-    model_filename = os.path.join(model_loc, "avocado.{}.h5".format(args.chrom))
-    model_checkpoint = ModelCheckpoint(filepath=model_filename)
+    model = build_model(n_celltypes=len(cell_types),
+                        n_assays=len(assays),
+                        n_genomic_positions=n_genomic_positions)
 
-    history = model.fit_generator(generator=train_generator,
-                                  validation_data=valid_generator,
-                                  verbose=args.verbose,
-                                  epochs=args.epochs,
-                                  use_multiprocessing=True,
-                                  workers=24,
-                                  max_queue_size=1000,
-                                  callbacks=[model_checkpoint])
+    parallel_model = multi_gpu_model(model=model, gpus=2, cpu_merge=False)
+    parallel_model.compile(optimizer="adam", loss="mse")
+    model.compile(optimizer="adam", loss="mse")
+
+    model_filename = os.path.join(model_loc, "avocado.{}.h5".format(args.chrom))
+    model_checkpoint = MultiGPUModelCheckpoint(filepath=model_filename,
+                                               model_to_save=model)
+
+    history = parallel_model.fit_generator(generator=train_generator,
+                                           validation_data=valid_generator,
+                                           verbose=args.verbose,
+                                           epochs=args.epochs,
+                                           use_multiprocessing=True,
+                                           workers=48,
+                                           max_queue_size=1000,
+                                           callbacks=[model_checkpoint])
 
     # summarize history for loss
     plt.plot(history.history['loss'])
@@ -212,6 +269,8 @@ def main():
     plt.legend(['train', 'test'], loc='upper left')
     output_filename = os.path.join("/home/rs619065/EncodeImputation/vis", "avocado.{}.pdf".format(args.chrom))
     plt.savefig(output_filename)
+
+    print("complete!!", file=sys.stdout)
 
 
 if __name__ == '__main__':
