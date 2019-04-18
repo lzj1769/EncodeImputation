@@ -1,6 +1,6 @@
 ############################################################################
 # Create training and validation dataset for each chromosome
-# by converting bigWig files to .h5. Note that we will also convert the data
+# by converting bigWig files to .h5. Note that we also convert the data
 # from 1bp resolution to 25 bp
 ############################################################################
 from __future__ import print_function
@@ -11,8 +11,6 @@ import pyBigWig
 import numpy as np
 import h5py
 import argparse
-
-from configure import *
 
 
 def parse_args():

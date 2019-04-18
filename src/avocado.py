@@ -19,7 +19,6 @@ import matplotlib.pyplot as plt
 
 from keras.models import Model
 from keras.layers import Input, Embedding, Flatten, Dense, concatenate
-from keras.layers import Dropout
 from keras.utils import Sequence
 from keras.utils.io_utils import h5dict
 from keras.callbacks import Callback
@@ -34,7 +33,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--chrom", type=str, default=None)
     parser.add_argument("-bs", "--batch_size", type=int, default=40960)
-    parser.add_argument("-e", "--epochs", type=int, default=25)
+    parser.add_argument("-e", "--epochs", type=int, default=120)
     parser.add_argument("-v", "--verbose", type=int, default=2)
 
     return parser.parse_args()
@@ -156,10 +155,10 @@ def build_model(n_celltypes, n_assays, n_genomic_positions,
                 n_celltype_factors=10,
                 n_assay_factors=10,
                 n_25bp_factors=25,
-                n_250bp_factors=30,
-                n_5kbp_factors=45,
+                n_250bp_factors=25,
+                n_5kbp_factors=25,
                 n_layers=2,
-                n_nodes=2048):
+                n_nodes=96):
     celltype_input = Input(shape=(1,), name="celltype_input")
     celltype_embedding = Embedding(n_celltypes, n_celltype_factors,
                                    input_length=1, name="celltype_embedding")
@@ -185,15 +184,19 @@ def build_model(n_celltypes, n_assays, n_genomic_positions,
                                       n_5kbp_factors, input_length=1, name="genome_5kbp_embedding")
     genome_5kbp = Flatten()(genome_5kbp_embedding(genome_5kbp_input))
 
+    assay_embedding.trainable = False
+    genome_25bp_embedding.trainable = False
+    genome_250bp_embedding.trainable = False
+    genome_5kbp_embedding.trainable = False
+
     layers = [celltype, assay, genome_25bp, genome_250bp, genome_5kbp]
     inputs = (celltype_input, assay_input, genome_25bp_input, genome_250bp_input, genome_5kbp_input)
 
     x = concatenate(layers)
     for i in range(n_layers):
         x = Dense(n_nodes, activation='relu', name="dense_{}".format(i))(x)
-        x = Dropout(0.5)(x)
 
-    outputs = Dense(1, activation='relu', name="y_pred")(x)
+    outputs = Dense(1, name="y_pred")(x)
 
     model = Model(inputs=inputs, outputs=outputs)
 

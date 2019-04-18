@@ -25,12 +25,11 @@ export PERL5LIB=/home/rs619065/perl5/lib/perl5:$PERL5LIB
 
 export RUBYLIB=$RUBYLIB:/home/rs619065/AMUSED:/home/rs619065/Ruby-DNA-Tools
 
-module load cuda/90
-module load cudnn/7.0.5
+source ~/miniconda2/bin/activate py36env
 
-export CUDA_DEVICE_ORDER=PCI_BUS_ID
-export CUDA_VISIBLE_DEVICES=0,1
+#module load cuda/90
+#module load cudnn/7.0.5
 
 nvidia-smi
 
-python avocado.py -c $1
+python avocado_pytorch.py -c $1
