@@ -27,9 +27,4 @@ export RUBYLIB=$RUBYLIB:/home/rs619065/AMUSED:/home/rs619065/Ruby-DNA-Tools
 
 source ~/miniconda2/bin/activate py36env
 
-#module load cuda/90
-#module load cudnn/7.0.5
-
-nvidia-smi
-
-python avocado_pytorch.py -c $1
+python avocado_pytorch.py -c $1 -e 100

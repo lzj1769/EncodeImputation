@@ -12,9 +12,8 @@ chrom_list = ['chr1', 'chr2', 'chr3',
               'chr22', 'chrX']
 
 for chrom in chrom_list:
-    if chrom == 'chr22':
-        job_name = "avocado_{}".format(chrom)
-        command = "sbatch -J " + job_name + " -o " + "./cluster_out/" + job_name + "_out.txt -e " + \
-                  "./cluster_err/" + job_name + "_err.txt -t 10:00:00 --mem 100G -c 24 "
-        command += "--partition=c18g --gres=gpu:1  ./avocado_pytorch.zsh "
-        os.system(command + " " + chrom)
+    job_name = "{}".format(chrom)
+    command = "sbatch -J " + job_name + " -o " + "./cluster_out/" + job_name + "_out.txt -e " + \
+              "./cluster_err/" + job_name + "_err.txt -t 120:00:00 --mem 180G"
+    command += "--partition=c18g -A rwth0233 --gres=gpu:1 -c 24 ./avocado_pytorch.zsh "
+    os.system(command + " " + chrom)

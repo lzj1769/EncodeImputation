@@ -1,21 +1,29 @@
 import os
-import sys
+import argparse
 import numpy as np
+from tqdm import tqdm
+import random
+import time
+
+import matplotlib
+
+matplotlib.use("agg")
+import matplotlib.pyplot as plt
+
 import torch
 from torch import nn
 import torch.optim as optimizers
 from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset
-import argparse
-import time
-import random
-from contextlib import contextmanager
 
 training_data_csv = "/hpcwork/izkf/projects/ENCODEImputation/data/training_data/metadata_training_data.tsv"
 training_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/input/training_data"
 
 validation_data_csv = "/hpcwork/izkf/projects/ENCODEImputation/data/validation_data/metadata_training_data.tsv"
 validation_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/input/validation_data"
+
+model_loc = "/hpcwork/izkf/projects/ENCODEImputation/model"
+vis_loc = "/home/rs619065/EncodeImputation/vis"
 
 chrom_size_dict = {'chr1': 248956422,
                    'chr2': 242193529,
@@ -45,21 +53,13 @@ chrom_size_dict = {'chr1': 248956422,
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--chrom", type=str, default=None)
-    parser.add_argument("-bs", "--batch_size", type=int, default=40960)
-    parser.add_argument("-e", "--epochs", type=int, default=120)
+    parser.add_argument("-bs", "--batch_size", type=int, default=20480)
+    parser.add_argument("-e", "--epochs", type=int, default=30)
     parser.add_argument("-s", "--seed", type=int, default=2019)
-    parser.add_argument("-v", "--verbose", type=int, default=2)
+    parser.add_argument("-v", "--verbose", type=int, default=0)
+    parser.add_argument("-w", "--num_workers", type=int, default=24)
 
     return parser.parse_args()
-
-
-@contextmanager
-def timer(msg):
-    t0 = time.time()
-    print(f'[{msg}] start.', file=sys.stdout)
-    yield
-    elapsed_time = time.time() - t0
-    print(f'[{msg}] done in {elapsed_time / 60:.2f} min.', file=sys.stdout)
 
 
 def get_cells_assays():
@@ -79,7 +79,7 @@ def get_cells_assays():
     return list(set(cells)), list(set(assays))
 
 
-def seed_torch(seed=2019):
+def seed_torch(seed):
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
@@ -118,13 +118,14 @@ class Avocado(nn.Module):
         self.linear1 = nn.Linear(in_features, n_hidden_units)
         self.linear2 = nn.Linear(n_hidden_units, n_hidden_units)
         self.linear_out = nn.Linear(n_hidden_units, 1)
+        self.dropout = nn.Dropout(0.5)
 
     def forward(self, x):
-        cell_index = x['cell_index']
-        assay_index = x['assay_index']
-        positions_25bp_index = x['positions_25bp_index']
-        positions_250bp_index = x['positions_250bp_index']
-        positions_5kbp_index = x['positions_5kbp_index']
+        cell_index = x[:, 0]
+        assay_index = x[:, 1]
+        positions_25bp_index = x[:, 2]
+        positions_250bp_index = x[:, 3]
+        positions_5kbp_index = x[:, 4]
 
         inputs = torch.cat((self.cell_embedding.weight[cell_index],
                             self.assay_embedding.weight[assay_index],
@@ -133,6 +134,7 @@ class Avocado(nn.Module):
                             self.positions_5kbp_embedding.weight[positions_5kbp_index]), 1)
 
         x = F.relu(self.linear1(inputs))
+        x = self.dropout(x)
         x = F.relu(self.linear2(x))
         out = self.linear_out(x)
 
@@ -142,29 +144,33 @@ class Avocado(nn.Module):
 class EncodeImputationDataset(Dataset):
     """Encode dataset."""
 
-    def __init__(self, cells, assays, n_positions_25bp, chromosome, data_loc):
+    def __init__(self, cells, assays, n_positions_25bp, chromosome, data_loc, verbose):
         self.cells = cells
         self.assays = assays
         self.n_cells = len(cells)
         self.n_assays = len(assays)
         self.n_positions_25bp = n_positions_25bp
         self.chromosome = chromosome
-        self.data = np.empty(shape=(self.n_cells, self.n_assays, self.n_positions_25bp), dtype=np.float32)
-        self.cell_assay_indexes = list()
+        self.data = torch.empty((self.n_cells, self.n_assays, self.n_positions_25bp), dtype=torch.float32)
 
+        cell_assay_indexes = list()
         for i, cell in enumerate(self.cells):
             for j, assay in enumerate(self.assays):
                 filename = os.path.join(data_loc, "{}{}.npz".format(cell, assay))
                 if os.path.exists(filename):
+                    if verbose:
+                        print("load data {}...".format(filename))
+
                     with np.load(filename) as data:
-                        self.data[i, j, :] = data[self.chromosome]
+                        self.data[i, j, :] = torch.as_tensor(data[self.chromosome])
 
-                    self.cell_assay_indexes.append((i, j))
+                    cell_assay_indexes.append((i, j))
 
-        self.indexes = np.arange(len(self.cell_assay_indexes) * n_positions_25bp)
+        self.cell_assay_indexes = torch.as_tensor(np.array(cell_assay_indexes))
+        self.length = len(cell_assay_indexes) * n_positions_25bp
 
     def __len__(self):
-        return len(self.indexes)
+        return self.length
 
     def __getitem__(self, index):
         cell_assay_index = index // self.n_positions_25bp
@@ -173,16 +179,9 @@ class EncodeImputationDataset(Dataset):
         genomic_5kbp_index = genomic_25bp_index // 200
 
         cell_index, assay_index = self.cell_assay_indexes[cell_assay_index]
-        y = self.data[cell_index, assay_index, genomic_25bp_index]
-        x = {
-            'cell_index': cell_index,
-            'assay_index': assay_index,
-            'positions_25bp_index': genomic_25bp_index,
-            'positions_250bp_index': genomic_250bp_index,
-            'positions_5kbp_index': genomic_5kbp_index
-        }
+        x = np.array([cell_index, assay_index, genomic_25bp_index, genomic_250bp_index, genomic_5kbp_index])
 
-        return x, y
+        return torch.as_tensor(x), self.data[cell_index][assay_index][genomic_25bp_index]
 
 
 def get_positions(chrom_size):
@@ -202,9 +201,9 @@ def get_positions(chrom_size):
 
 
 def update_embedding(model, embedding, x_batch, y_batch, optimizer, loss_fn):
-    assert embedding not in ['cell_embedding', 'assay_embedding', 'positions_25bp_embedding',
-                             'positions_250bp_embedding',
-                             'positions_5kbp_embedding'], "embedding  {} doesn't exist".format(embedding)
+    assert embedding in ['cell_embedding', 'assay_embedding', 'positions_25bp_embedding',
+                         'positions_250bp_embedding',
+                         'positions_5kbp_embedding'], "embedding  {} doesn't exist".format(embedding)
 
     if embedding == 'cell_embedding':
         model.cell_embedding.weight.requires_grad = True
@@ -253,6 +252,20 @@ def update_embedding(model, embedding, x_batch, y_batch, optimizer, loss_fn):
     return loss.item()
 
 
+def plot_history(train_loss, valid_loss, chrom):
+    plt.subplot(1, 2, 1)
+    plt.plot(train_loss)
+    plt.title("Training loss", fontweight='bold')
+
+    plt.subplot(1, 2, 2)
+    plt.plot(valid_loss)
+    plt.title("Validation loss", fontweight='bold')
+
+    output_filename = os.path.join(vis_loc, "avocado.{}.pdf".format(chrom))
+    plt.tight_layout()
+    plt.savefig(output_filename)
+
+
 def main():
     args = parse_args()
 
@@ -262,64 +275,130 @@ def main():
 
     cells, assays = get_cells_assays()
 
-    with timer("build model"):
-        chrom_size = chrom_size_dict[args.chrom]
+    chrom_size = chrom_size_dict[args.chrom]
 
-        n_positions_25bp, n_positions_250bp, n_positions_5kbp = get_positions(chrom_size)
+    n_positions_25bp, n_positions_250bp, n_positions_5kbp = get_positions(chrom_size)
 
-        avocado = Avocado(n_cells=len(cells), n_assays=len(assays),
-                          n_positions_25bp=n_positions_25bp,
-                          n_positions_250bp=n_positions_250bp,
-                          n_positions_5kbp=n_positions_5kbp)
+    model_path = os.path.join(model_loc, "avocado_{}.pth".format(args.chrom))
 
-    with timer('load data'):
-        train_dataset = EncodeImputationDataset(cells=cells, assays=assays, n_positions_25bp=n_positions_25bp,
-                                                chromosome=args.chrom, data_loc=training_data_loc)
+    avocado = Avocado(n_cells=len(cells),
+                      n_assays=len(assays),
+                      n_positions_25bp=n_positions_25bp,
+                      n_positions_250bp=n_positions_250bp,
+                      n_positions_5kbp=n_positions_5kbp)
 
-        valid_dataset = EncodeImputationDataset(cells=cells, assays=assays, n_positions_25bp=n_positions_25bp,
-                                                chromosome=args.chrom, data_loc=validation_data_loc)
+    if os.path.exists(model_path):
+        avocado.load_state_dict(torch.load(model_path))
 
-        train_dataloader = DataLoader(dataset=train_dataset, shuffle=True, batch_size=args.batch_size)
-        valid_dataloader = DataLoader(dataset=valid_dataset, shuffle=False, batch_size=args.batch_size)
+    # use multi-GPUs
+    # avocado = nn.DataParallel(avocado)
+    avocado.cuda()
 
-    with timer('training'):
-        loss = nn.MSELoss()
+    print("loading data...")
+    train_dataset = EncodeImputationDataset(cells=cells, assays=assays, n_positions_25bp=n_positions_25bp,
+                                            chromosome=args.chrom, data_loc=training_data_loc,
+                                            verbose=args.verbose)
 
-        for epoch in range(args.epochs):
-            sgd = optimizers.SGD(avocado.parameters(), lr=0.001, momentum=0.9)
+    valid_dataset = EncodeImputationDataset(cells=cells, assays=assays, n_positions_25bp=n_positions_25bp,
+                                            chromosome=args.chrom, data_loc=validation_data_loc,
+                                            verbose=args.verbose)
 
-            # training
-            running_loss = 0.0
-            for i, data in enumerate(train_dataloader):
-                # get the inputs
-                x, y = data
+    print("creating dataloader...")
+    train_dataloader = DataLoader(dataset=train_dataset, shuffle=True, pin_memory=True,
+                                  batch_size=args.batch_size, num_workers=args.num_workers, drop_last=True)
 
-                # iteratively update embedding matrix for cells, assays and genomic positions
-                running_loss += update_embedding(model=avocado, embedding='cell_embedding', x_batch=x, y_batch=y,
-                                                 optimizer=sgd, loss_fn=loss)
+    valid_dataloader = DataLoader(dataset=valid_dataset, shuffle=False, pin_memory=True,
+                                  batch_size=args.batch_size, num_workers=args.num_workers, drop_last=False)
 
-                running_loss += update_embedding(model=avocado, embedding='assay_embedding', x_batch=x, y_batch=y,
-                                                 optimizer=sgd, loss_fn=loss)
+    print('training data: %d' % (len(train_dataloader)))
+    print('validation data: %d' % (len(valid_dataloader)))
 
-                running_loss += update_embedding(model=avocado, embedding='positions_25bp_embedding', x_batch=x,
-                                                 y_batch=y,
-                                                 optimizer=sgd, loss_fn=loss)
+    criterion = nn.MSELoss()
 
-                running_loss += update_embedding(model=avocado, embedding='positions_250bp_embedding', x_batch=x,
-                                                 y_batch=y,
-                                                 optimizer=sgd, loss_fn=loss)
+    history_train_loss = list()
+    history_valid_loss = list()
 
-                running_loss += update_embedding(model=avocado, embedding='positions_5kbp_embedding', x_batch=x,
-                                                 y_batch=y,
-                                                 optimizer=sgd, loss_fn=loss)
+    # initial loss
+    ini_train_loss = 0
+    ini_valid_loss = 0
 
-                if i % 2000 == 1999:  # print every 2000 mini-batches
-                    print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 2000))
-                    running_loss = 0.0
+    start = time.time()
 
-            # # validation
-            # valid_loss = 0
-            # for i, data in enumerate(valid_dataloader):
+    avocado.eval()
+    if args.verbose:
+        for x, y in tqdm(train_dataloader):
+            y_pred = avocado(x.cuda()).reshape(-1)
+            ini_train_loss += criterion(y.cuda(), y_pred).item()
+
+        for x, y in tqdm(valid_dataloader):
+            y_pred = avocado(x.cuda()).reshape(-1)
+            ini_valid_loss += criterion(y.cuda(), y_pred).item()
+    else:
+        for x, y in train_dataloader:
+            y_pred = avocado(x.cuda()).reshape(-1)
+            ini_train_loss += criterion(y.cuda(), y_pred).item()
+
+        for x, y in valid_dataloader:
+            y_pred = avocado(x.cuda()).reshape(-1)
+            ini_valid_loss += criterion(y.cuda(), y_pred).item()
+
+    ini_train_loss /= len(train_dataloader)
+    ini_valid_loss /= len(valid_dataloader)
+
+    history_train_loss.append(ini_train_loss)
+    history_valid_loss.append(ini_valid_loss)
+
+    secs = time.time() - start
+    m, s = divmod(secs, 60)
+    h, m = divmod(m, 60)
+
+    print('epoch: %d, training loss: %.3f, validation loss: %.3f, time: %dh %dm %ds' % (0, ini_train_loss,
+                                                                                        ini_valid_loss, h, m, s))
+
+    best_valid_loss = ini_valid_loss
+
+    optimizer = optimizers.Adam(avocado.parameters())
+    for epoch in tqdm(range(args.epochs)):
+        # training
+        avocado.train()
+        train_loss = 0.0
+
+        start = time.time()
+
+        for x, y in train_dataloader:
+            x, y = x.cuda(), y.cuda()
+            optimizer.zero_grad()
+            y_pred = avocado(x).reshape(-1)
+            loss = criterion(y, y_pred)
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item()
+
+        # validation
+        avocado.eval()
+        valid_loss = 0.0
+        for x, y in valid_dataloader:
+            y_pred = avocado(x.cuda()).reshape(-1)
+            valid_loss += criterion(y.cuda(), y_pred).item()
+
+        train_loss /= len(train_dataloader)
+        valid_loss /= len(valid_dataloader)
+
+        secs = time.time() - start
+        m, s = divmod(secs, 60)
+        h, m = divmod(m, 60)
+
+        print('epoch: %d, training loss: %.3f, validation loss: %.3f, time: %dh %dm %ds' % (epoch + 1, train_loss,
+                                                                                            valid_loss, h, m, s))
+
+        history_train_loss.append(train_loss)
+        history_valid_loss.append(valid_loss)
+
+        plot_history(history_train_loss, history_valid_loss, args.chrom)
+
+        if valid_loss < best_valid_loss:
+            best_valid_loss = valid_loss
+            torch.save(avocado.state_dict(), model_path)
 
 
 if __name__ == '__main__':
