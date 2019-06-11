@@ -1,10 +1,9 @@
 import os
 import argparse
 import numpy as np
-from tqdm import tqdm
 import random
 import time
-
+import warnings
 import matplotlib
 
 matplotlib.use("agg")
@@ -14,40 +13,44 @@ import torch
 from torch import nn
 import torch.optim as optimizers
 from torch.nn import functional as F
+from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader, Dataset
 
-training_data_csv = "/hpcwork/izkf/projects/ENCODEImputation/data/training_data/metadata_training_data.tsv"
-training_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/input/training_data"
+training_data_tsv = "/hpcwork/izkf/projects/ENCODEImputation/local/TSV/metadata_training_data.tsv"
+validation_data_tsv = "/hpcwork/izkf/projects/ENCODEImputation/local/TSV/metadata_validation_data.tsv"
 
-validation_data_csv = "/hpcwork/izkf/projects/ENCODEImputation/data/validation_data/metadata_training_data.tsv"
-validation_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/input/validation_data"
+training_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFilesArcSinh/training_data"
+validation_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFilesArcSinh/validation_data"
 
-model_loc = "/hpcwork/izkf/projects/ENCODEImputation/model"
-vis_loc = "/home/rs619065/EncodeImputation/vis"
+# training_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFiles/training_data"
+# validation_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/NPYFiles/validation_data"
 
-chrom_size_dict = {'chr1': 248956422,
-                   'chr2': 242193529,
-                   'chr3': 198295559,
-                   'chr4': 190214555,
-                   'chr5': 181538259,
-                   'chr6': 170805979,
-                   'chr7': 159345973,
-                   'chr8': 145138636,
-                   'chr9': 138394717,
-                   'chr10': 133797422,
-                   'chr11': 135086622,
-                   'chr12': 133275309,
-                   'chr13': 114364328,
-                   'chr14': 107043718,
-                   'chr15': 101991189,
-                   'chr16': 90338345,
-                   'chr17': 83257441,
-                   'chr18': 80373285,
-                   'chr19': 58617616,
-                   'chr20': 64444167,
-                   'chr21': 46709983,
-                   'chr22': 50818468,
-                   'chrX': 156040895}
+model_loc = "/hpcwork/izkf/projects/ENCODEImputation/exp/Li/Models/Avocado"
+vis_loc = "/home/rs619065/EncodeImputation/vis/Avocado"
+
+chrom_size_dict = {'chr1': 9958247,
+                   'chr2': 9687698,
+                   'chr3': 7931798,
+                   'chr4': 7608557,
+                   'chr5': 7261460,
+                   'chr6': 6832240,
+                   'chr7': 6373839,
+                   'chr8': 5805546,
+                   'chr9': 5535789,
+                   'chr10': 5351815,
+                   'chr11': 5403465,
+                   'chr12': 5331013,
+                   'chr13': 4574574,
+                   'chr14': 4281749,
+                   'chr15': 4079648,
+                   'chr16': 3613240,
+                   'chr17': 3330298,
+                   'chr18': 3214932,
+                   'chr19': 2344705,
+                   'chr20': 2577636,
+                   'chr21': 1868374,
+                   'chr22': 2032739,
+                   'chrX': 6241636}
 
 
 def parse_args():
@@ -66,7 +69,7 @@ def get_cells_assays():
     cells = []
     assays = []
 
-    f = open(training_data_csv)
+    f = open(training_data_tsv)
     f.readline()
 
     for line in f.readlines():
@@ -84,7 +87,8 @@ def seed_torch(seed):
     os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
 
 
@@ -156,14 +160,11 @@ class EncodeImputationDataset(Dataset):
         cell_assay_indexes = list()
         for i, cell in enumerate(self.cells):
             for j, assay in enumerate(self.assays):
-                filename = os.path.join(data_loc, "{}{}.npz".format(cell, assay))
+                filename = os.path.join(data_loc, "{}{}.npy".format(cell, assay))
                 if os.path.exists(filename):
-                    if verbose:
-                        print("load data {}...".format(filename))
-
-                    with np.load(filename) as data:
-                        self.data[i, j, :] = torch.as_tensor(data[self.chromosome])
-
+                    print("load data {}...".format(filename))
+                    data = np.load(filename, allow_pickle=True)[()]
+                    self.data[i, j, :] = torch.as_tensor(data[self.chromosome])
                     cell_assay_indexes.append((i, j))
 
         self.cell_assay_indexes = torch.as_tensor(np.array(cell_assay_indexes))
@@ -184,72 +185,99 @@ class EncodeImputationDataset(Dataset):
         return torch.as_tensor(x), self.data[cell_index][assay_index][genomic_25bp_index]
 
 
-def get_positions(chrom_size):
-    n_positions_25bp = chrom_size // 25
+class ReduceLROnPlateau(object):
+    """Reduce learning rate when a metric has stopped improving.
+    Models often benefit from reducing the learning rate by a factor
+    of 2-10 once learning stagnates. This scheduler reads a metrics
+    quantity and if no improvement is seen for a 'patience' number
+    of epochs, the learning rate is reduced.
 
-    if n_positions_25bp % 10 == 0:
-        n_positions_250bp = n_positions_25bp // 10
-    else:
-        n_positions_250bp = n_positions_25bp // 10 + 1
+    Args:
+        factor: factor by which the learning rate will
+            be reduced. new_lr = lr * factor
+        patience: number of epochs with no improvement
+            after which learning rate will be reduced.
+        verbose: int. 0: quiet, 1: update messages.
+        mode: one of {min, max}. In `min` mode,
+            lr will be reduced when the quantity
+            monitored has stopped decreasing; in `max`
+            mode it will be reduced when the quantity
+            monitored has stopped increasing.
+        epsilon: threshold for measuring the new optimum,
+            to only focus on significant changes.
+        cooldown: number of epochs to wait before resuming
+            normal operation after lr has been reduced.
+        min_lr: lower bound on the learning rate.
+    """
 
-    if n_positions_25bp % 200 == 0:
-        n_positions_5kbp = n_positions_25bp // 200
-    else:
-        n_positions_5kbp = n_positions_25bp // 200 + 1
+    def __init__(self, optimizer, mode='min', factor=0.1, patience=10,
+                 verbose=0, epsilon=1e-4, cooldown=0, min_lr=0.0):
+        super(ReduceLROnPlateau, self).__init__()
 
-    return n_positions_25bp, n_positions_250bp, n_positions_5kbp
+        if factor >= 1.0:
+            raise ValueError('ReduceLROnPlateau '
+                             'does not support a factor >= 1.0.')
+        self.factor = factor
+        self.min_lr = min_lr
+        self.epsilon = epsilon
+        self.patience = patience
+        self.verbose = verbose
+        self.cooldown = cooldown
+        self.cooldown_counter = 0  # Cooldown counter.
+        self.monitor_op = None
+        self.wait = 0
+        self.best = 0
+        self.mode = mode
+        assert isinstance(optimizer, Optimizer)
+        self.optimizer = optimizer
+        self._reset()
 
+    def _reset(self):
+        """Resets wait counter and cooldown counter.
+        """
+        if self.mode not in ['min', 'max']:
+            raise RuntimeError('Learning Rate Plateau Reducing mode %s is unknown!')
+        if self.mode == 'min':
+            self.monitor_op = lambda a, b: np.less(a, b - self.epsilon)
+            self.best = np.Inf
+        else:
+            self.monitor_op = lambda a, b: np.greater(a, b + self.epsilon)
+            self.best = -np.Inf
+        self.cooldown_counter = 0
+        self.wait = 0
+        self.lr_epsilon = self.min_lr * 1e-4
 
-def update_embedding(model, embedding, x_batch, y_batch, optimizer, loss_fn):
-    assert embedding in ['cell_embedding', 'assay_embedding', 'positions_25bp_embedding',
-                         'positions_250bp_embedding',
-                         'positions_5kbp_embedding'], "embedding  {} doesn't exist".format(embedding)
+    def reset(self):
+        self._reset()
 
-    if embedding == 'cell_embedding':
-        model.cell_embedding.weight.requires_grad = True
-        model.assay_embedding.weight.requires_grad = False
-        model.positions_25bp_embedding.weight.requires_grad = False
-        model.positions_250bp_embedding.weight.requires_grad = False
-        model.positions_5kbp_embedding.weight.requires_grad = False
+    def step(self, metrics, epoch):
+        current = metrics
+        if current is None:
+            warnings.warn('Learning Rate Plateau Reducing requires metrics available!', RuntimeWarning)
+        else:
+            if self.in_cooldown():
+                self.cooldown_counter -= 1
+                self.wait = 0
 
-    elif embedding == 'assay_embedding':
-        model.cell_embedding.weight.requires_grad = False
-        model.assay_embedding.weight.requires_grad = True
-        model.positions_25bp_embedding.weight.requires_grad = False
-        model.positions_250bp_embedding.weight.requires_grad = False
-        model.positions_5kbp_embedding.weight.requires_grad = False
+            if self.monitor_op(current, self.best):
+                self.best = current
+                self.wait = 0
+            elif not self.in_cooldown():
+                if self.wait >= self.patience:
+                    for param_group in self.optimizer.param_groups:
+                        old_lr = float(param_group['lr'])
+                        if old_lr > self.min_lr + self.lr_epsilon:
+                            new_lr = old_lr * self.factor
+                            new_lr = max(new_lr, self.min_lr)
+                            param_group['lr'] = new_lr
+                            if self.verbose > 0:
+                                print('\nEpoch %05d: reducing learning rate to %s.' % (epoch, new_lr))
+                            self.cooldown_counter = self.cooldown
+                            self.wait = 0
+                self.wait += 1
 
-    elif embedding == 'positions_25bp_embedding':
-        model.cell_embedding.weight.requires_grad = False
-        model.assay_embedding.weight.requires_grad = False
-        model.positions_25bp_embedding.weight.requires_grad = True
-        model.positions_250bp_embedding.weight.requires_grad = False
-        model.positions_5kbp_embedding.weight.requires_grad = False
-
-    elif embedding == 'positions_250bp_embedding':
-        model.cell_embedding.weight.requires_grad = False
-        model.assay_embedding.weight.requires_grad = False
-        model.positions_25bp_embedding.weight.requires_grad = False
-        model.positions_250bp_embedding.weight.requires_grad = True
-        model.positions_5kbp_embedding.weight.requires_grad = False
-
-    elif embedding == 'positions_5kbp_embedding':
-        model.cell_embedding.weight.requires_grad = False
-        model.assay_embedding.weight.requires_grad = False
-        model.positions_25bp_embedding.weight.requires_grad = False
-        model.positions_250bp_embedding.weight.requires_grad = False
-        model.positions_5kbp_embedding.weight.requires_grad = True
-
-    # zero the parameter gradients
-    optimizer.zero_grad()
-
-    # forward + backward + optimize
-    y_pred = model(x_batch)
-    loss = loss_fn(y_batch, y_pred)
-    loss.backward()
-    optimizer.step()
-
-    return loss.item()
+    def in_cooldown(self):
+        return self.cooldown_counter > 0
 
 
 def plot_history(train_loss, valid_loss, chrom):
@@ -275,11 +303,11 @@ def main():
 
     cells, assays = get_cells_assays()
 
-    chrom_size = chrom_size_dict[args.chrom]
+    n_positions_25bp = chrom_size_dict[args.chrom]
 
-    n_positions_25bp, n_positions_250bp, n_positions_5kbp = get_positions(chrom_size)
+    n_positions_250bp, n_positions_5kbp = n_positions_25bp // 10 + 1, n_positions_25bp // 200 + 1
 
-    model_path = os.path.join(model_loc, "avocado_{}.pth".format(args.chrom))
+    model_path = os.path.join(model_loc, "{}.pth".format(args.chrom))
 
     avocado = Avocado(n_cells=len(cells),
                       n_assays=len(assays),
@@ -290,9 +318,8 @@ def main():
     if os.path.exists(model_path):
         avocado.load_state_dict(torch.load(model_path))
 
-    # use multi-GPUs
-    # avocado = nn.DataParallel(avocado)
-    avocado.cuda()
+    if torch.cuda.is_available():
+        avocado.cuda()
 
     print("loading data...")
     train_dataset = EncodeImputationDataset(cells=cells, assays=assays, n_positions_25bp=n_positions_25bp,
@@ -325,15 +352,7 @@ def main():
     start = time.time()
 
     avocado.eval()
-    if args.verbose:
-        for x, y in tqdm(train_dataloader):
-            y_pred = avocado(x.cuda()).reshape(-1)
-            ini_train_loss += criterion(y.cuda(), y_pred).item()
-
-        for x, y in tqdm(valid_dataloader):
-            y_pred = avocado(x.cuda()).reshape(-1)
-            ini_valid_loss += criterion(y.cuda(), y_pred).item()
-    else:
+    if torch.cuda.is_available():
         for x, y in train_dataloader:
             y_pred = avocado(x.cuda()).reshape(-1)
             ini_train_loss += criterion(y.cuda(), y_pred).item()
@@ -341,6 +360,14 @@ def main():
         for x, y in valid_dataloader:
             y_pred = avocado(x.cuda()).reshape(-1)
             ini_valid_loss += criterion(y.cuda(), y_pred).item()
+    else:
+        for x, y in train_dataloader:
+            y_pred = avocado(x).reshape(-1)
+            ini_train_loss += criterion(y, y_pred).item()
+
+        for x, y in valid_dataloader:
+            y_pred = avocado(x).reshape(-1)
+            ini_valid_loss += criterion(y, y_pred).item()
 
     ini_train_loss /= len(train_dataloader)
     ini_valid_loss /= len(valid_dataloader)
@@ -352,34 +379,45 @@ def main():
     m, s = divmod(secs, 60)
     h, m = divmod(m, 60)
 
-    print('epoch: %d, training loss: %.3f, validation loss: %.3f, time: %dh %dm %ds' % (0, ini_train_loss,
+    print('epoch: %d, training loss: %.8f, validation loss: %.8f, time: %dh %dm %ds' % (0, ini_train_loss,
                                                                                         ini_valid_loss, h, m, s))
-
-    best_valid_loss = ini_valid_loss
-
     optimizer = optimizers.Adam(avocado.parameters())
-    for epoch in tqdm(range(args.epochs)):
+    for epoch in range(args.epochs):
         # training
         avocado.train()
         train_loss = 0.0
 
         start = time.time()
 
-        for x, y in train_dataloader:
-            x, y = x.cuda(), y.cuda()
-            optimizer.zero_grad()
-            y_pred = avocado(x).reshape(-1)
-            loss = criterion(y, y_pred)
-            loss.backward()
-            optimizer.step()
-            train_loss += loss.item()
+        if torch.cuda.is_available():
+            for x, y in train_dataloader:
+                x, y = x.cuda(), y.cuda()
+                optimizer.zero_grad()
+                y_pred = avocado(x).reshape(-1)
+                loss = criterion(y, y_pred)
+                loss.backward()
+                optimizer.step()
+                train_loss += loss.item()
+        else:
+            for x, y in train_dataloader:
+                optimizer.zero_grad()
+                y_pred = avocado(x).reshape(-1)
+                loss = criterion(y, y_pred)
+                loss.backward()
+                optimizer.step()
+                train_loss += loss.item()
 
         # validation
         avocado.eval()
         valid_loss = 0.0
-        for x, y in valid_dataloader:
-            y_pred = avocado(x.cuda()).reshape(-1)
-            valid_loss += criterion(y.cuda(), y_pred).item()
+        if torch.cuda.is_available():
+            for x, y in valid_dataloader:
+                y_pred = avocado(x.cuda()).reshape(-1)
+                valid_loss += criterion(y.cuda(), y_pred).item()
+        else:
+            for x, y in valid_dataloader:
+                y_pred = avocado(x).reshape(-1)
+                valid_loss += criterion(y, y_pred).item()
 
         train_loss /= len(train_dataloader)
         valid_loss /= len(valid_dataloader)
@@ -388,17 +426,13 @@ def main():
         m, s = divmod(secs, 60)
         h, m = divmod(m, 60)
 
-        print('epoch: %d, training loss: %.3f, validation loss: %.3f, time: %dh %dm %ds' % (epoch + 1, train_loss,
+        print('epoch: %d, training loss: %.8f, validation loss: %.8f, time: %dh %dm %ds' % (epoch + 1, train_loss,
                                                                                             valid_loss, h, m, s))
-
         history_train_loss.append(train_loss)
         history_valid_loss.append(valid_loss)
 
         plot_history(history_train_loss, history_valid_loss, args.chrom)
-
-        if valid_loss < best_valid_loss:
-            best_valid_loss = valid_loss
-            torch.save(avocado.state_dict(), model_path)
+        torch.save(avocado.state_dict(), model_path)
 
 
 if __name__ == '__main__':

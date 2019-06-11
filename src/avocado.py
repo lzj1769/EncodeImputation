@@ -247,7 +247,7 @@ def main():
                         n_genomic_positions=n_genomic_positions)
 
     parallel_model = multi_gpu_model(model=model, gpus=2, cpu_merge=False)
-    parallel_model.compile(optimizer="adam", loss="mse")
+    parallel_model.compile(optimizer="adam", loss="mse", )
     model.compile(optimizer="adam", loss="mse")
 
     model_filename = os.path.join(model_loc, "avocado.{}.h5".format(args.chrom))
