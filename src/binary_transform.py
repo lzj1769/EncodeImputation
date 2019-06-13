@@ -21,8 +21,13 @@ def main():
 
     raw_dict = numpy.load(args.raw, allow_pickle=True)[()]
 
+    signal = numpy.empty(0)
     for chrom in args.chrom:
-        raw_dict[chrom] = numpy.arcsinh(raw_dict[chrom])
+        signal = numpy.append(signal, raw_dict[chrom])
+
+    threshold = numpy.percentile(signal, 99)
+    for chrom in args.chrom:
+        raw_dict[chrom] = numpy.greater(raw_dict[chrom], threshold).astype(int)
 
     numpy.save(args.out_npy_prefix, raw_dict)
 
