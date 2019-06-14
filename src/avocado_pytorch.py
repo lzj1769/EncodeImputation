@@ -22,9 +22,6 @@ validation_data_tsv = "/hpcwork/izkf/projects/ENCODEImputation/local/TSV/metadat
 training_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFilesArcSinh/training_data"
 validation_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFilesArcSinh/validation_data"
 
-# training_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFiles/training_data"
-# validation_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/NPYFiles/validation_data"
-
 model_loc = "/hpcwork/izkf/projects/ENCODEImputation/exp/Li/Models/Avocado"
 vis_loc = "/home/rs619065/EncodeImputation/vis/Avocado"
 
@@ -74,12 +71,14 @@ def get_cells_assays():
 
     for line in f.readlines():
         ll = line.strip().split("\t")
-        cells.append(ll[1])
-        assays.append(ll[2])
+        if ll[1] not in cells:
+            cells.append(ll[1])
 
+        if ll[2] not in assays:
+            assays.append(ll[2])
     f.close()
 
-    return list(set(cells)), list(set(assays))
+    return cells, assays
 
 
 def seed_torch(seed):
