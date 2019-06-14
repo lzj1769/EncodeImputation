@@ -10,9 +10,12 @@ chrom_list = ['chr1', 'chr2', 'chr3',
               'chr16', 'chr17', 'chr18',
               'chr19', 'chr20', 'chr21',
               'chr22', 'chrX']
+
+chrom_list = ['chr22']
 for chrom in chrom_list:
-    job_name = "{}_classification".format(chrom)
+    job_name = "embedding_classification_{}".format(chrom)
     command = "sbatch -J " + job_name + " -o " + "./cluster_out/" + job_name + "_out.txt -e " + \
               "./cluster_err/" + job_name + "_err.txt -t 120:00:00 --mem 180G"
-    command += "--partition=c18g -c 24 --gres=gpu:1 embedding_classification.zsh"
+    #command += "--partition=c18g -c 24 --gres=gpu:1 embedding_classification.zsh"
+    command += " -c 24 -A rwth0233 embedding_classification.zsh"
     os.system(command + " " + chrom)

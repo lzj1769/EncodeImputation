@@ -149,7 +149,7 @@ class EmbeddingRegression(nn.Module):
 class EncodeImputationDataset(Dataset):
     """Encode dataset."""
 
-    def __init__(self, cells, assays, n_positions_25bp, chromosome, data_loc, verbose):
+    def __init__(self, cells, assays, n_positions_25bp, chromosome, data_loc):
         self.cells = cells
         self.assays = assays
         self.n_cells = len(cells)
@@ -337,12 +337,10 @@ def main():
 
     print("loading data...")
     train_dataset = EncodeImputationDataset(cells=cells, assays=assays, n_positions_25bp=n_positions_25bp,
-                                            chromosome=args.chrom, data_loc=training_data_loc,
-                                            verbose=args.verbose)
+                                            chromosome=args.chrom, data_loc=training_data_loc)
 
     valid_dataset = EncodeImputationDataset(cells=cells, assays=assays, n_positions_25bp=n_positions_25bp,
-                                            chromosome=args.chrom, data_loc=validation_data_loc,
-                                            verbose=args.verbose)
+                                            chromosome=args.chrom, data_loc=validation_data_loc)
 
     print("creating dataloader...")
     train_dataloader = DataLoader(dataset=train_dataset, shuffle=True, pin_memory=True,
