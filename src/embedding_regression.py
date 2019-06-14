@@ -4,6 +4,7 @@ import numpy as np
 import random
 import time
 import warnings
+import pathlib
 import matplotlib
 
 matplotlib.use("agg")
@@ -330,14 +331,9 @@ def main():
     if torch.cuda.is_available():
         embedding_regression.cuda()
 
-    if not os.path.exists(model_loc):
-        os.makedirs(model_loc)
-
-    if not os.path.exists(vis_loc):
-        os.makedirs(vis_loc)
-
-    if not os.path.exists(history_loc):
-        os.makedirs(history_loc)
+    pathlib.Path(model_loc).mkdir(parents=True, exist_ok=True)
+    pathlib.Path(vis_loc).mkdir(parents=True, exist_ok=True)
+    pathlib.Path(history_loc).mkdir(parents=True, exist_ok=True)
 
     print("loading data...")
     train_dataset = EncodeImputationDataset(cells=cells, assays=assays, n_positions_25bp=n_positions_25bp,
@@ -450,6 +446,8 @@ def main():
         history_valid_loss.append(valid_loss)
 
         plot_history(history_train_loss, history_valid_loss, args.chrom)
+        write_history(history_train_loss, history_valid_loss, args.chrom)
+
         torch.save(embedding_regression.state_dict(), model_path)
 
 
