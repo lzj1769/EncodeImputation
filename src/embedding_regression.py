@@ -22,8 +22,9 @@ validation_data_tsv = "/hpcwork/izkf/projects/ENCODEImputation/local/TSV/metadat
 training_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFilesArcSinh/training_data"
 validation_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFilesArcSinh/validation_data"
 
-model_loc = "/hpcwork/izkf/projects/ENCODEImputation/exp/Li/Models/Avocado"
-vis_loc = "/home/rs619065/EncodeImputation/vis/Avocado"
+model_loc = "/hpcwork/izkf/projects/ENCODEImputation/exp/Li/Models/EmbeddingRegression"
+vis_loc = "/home/rs619065/EncodeImputation/vis/EmbeddingRegression"
+history_loc = "/home/rs619065/EncodeImputation/history/EmbeddingRegression"
 
 chrom_size_dict = {'chr1': 9958247,
                    'chr2': 9687698,
@@ -91,11 +92,11 @@ def seed_torch(seed):
     torch.backends.cudnn.deterministic = True
 
 
-class Avocado(nn.Module):
+class EmbeddingRegression(nn.Module):
     def __init__(self, n_cells, n_assays, n_positions_25bp, n_positions_250bp, n_positions_5kbp,
                  cell_embedding_dim=10, assay_embedding_dim=10, positions_25bp_embedding_dim=25,
                  positions_250bp_embedding_dim=25, positions_5kbp_embedding_dim=25, n_hidden_units=256):
-        super(Avocado, self).__init__()
+        super(EmbeddingRegression, self).__init__()
 
         # cell embedding matrix
         self.cell_embedding = nn.Embedding(num_embeddings=n_cells,
@@ -288,9 +289,18 @@ def plot_history(train_loss, valid_loss, chrom):
     plt.plot(valid_loss)
     plt.title("Validation loss", fontweight='bold')
 
-    output_filename = os.path.join(vis_loc, "avocado.{}.pdf".format(chrom))
+    output_filename = os.path.join(vis_loc, "{}.pdf".format(chrom))
     plt.tight_layout()
     plt.savefig(output_filename)
+
+
+def write_history(train_loss, valid_loss, chrom):
+    output_filename = os.path.join(history_loc, "{}.txt".format(chrom))
+
+    with open(output_filename, "w") as f:
+        f.write("TrainLoss" + "\t" + "ValidLoss" + "\n")
+        for i, loss in enumerate(train_loss):
+            f.write(str(train_loss[i]) + "\t" + str(valid_loss[i]) + "\n")
 
 
 def main():
@@ -308,17 +318,26 @@ def main():
 
     model_path = os.path.join(model_loc, "{}.pth".format(args.chrom))
 
-    avocado = Avocado(n_cells=len(cells),
-                      n_assays=len(assays),
-                      n_positions_25bp=n_positions_25bp,
-                      n_positions_250bp=n_positions_250bp,
-                      n_positions_5kbp=n_positions_5kbp)
+    embedding_regression = EmbeddingRegression(n_cells=len(cells),
+                                               n_assays=len(assays),
+                                               n_positions_25bp=n_positions_25bp,
+                                               n_positions_250bp=n_positions_250bp,
+                                               n_positions_5kbp=n_positions_5kbp)
 
     if os.path.exists(model_path):
-        avocado.load_state_dict(torch.load(model_path))
+        embedding_regression.load_state_dict(torch.load(model_path))
 
     if torch.cuda.is_available():
-        avocado.cuda()
+        embedding_regression.cuda()
+
+    if not os.path.exists(model_loc):
+        os.makedirs(model_loc)
+
+    if not os.path.exists(vis_loc):
+        os.makedirs(vis_loc)
+
+    if not os.path.exists(history_loc):
+        os.makedirs(history_loc)
 
     print("loading data...")
     train_dataset = EncodeImputationDataset(cells=cells, assays=assays, n_positions_25bp=n_positions_25bp,
@@ -350,22 +369,22 @@ def main():
 
     start = time.time()
 
-    avocado.eval()
+    embedding_regression.eval()
     if torch.cuda.is_available():
         for x, y in train_dataloader:
-            y_pred = avocado(x.cuda()).reshape(-1)
+            y_pred = embedding_regression(x.cuda()).reshape(-1)
             ini_train_loss += criterion(y.cuda(), y_pred).item()
 
         for x, y in valid_dataloader:
-            y_pred = avocado(x.cuda()).reshape(-1)
+            y_pred = embedding_regression(x.cuda()).reshape(-1)
             ini_valid_loss += criterion(y.cuda(), y_pred).item()
     else:
         for x, y in train_dataloader:
-            y_pred = avocado(x).reshape(-1)
+            y_pred = embedding_regression(x).reshape(-1)
             ini_train_loss += criterion(y, y_pred).item()
 
         for x, y in valid_dataloader:
-            y_pred = avocado(x).reshape(-1)
+            y_pred = embedding_regression(x).reshape(-1)
             ini_valid_loss += criterion(y, y_pred).item()
 
     ini_train_loss /= len(train_dataloader)
@@ -380,10 +399,10 @@ def main():
 
     print('epoch: %d, training loss: %.8f, validation loss: %.8f, time: %dh %dm %ds' % (0, ini_train_loss,
                                                                                         ini_valid_loss, h, m, s))
-    optimizer = optimizers.Adam(avocado.parameters())
+    optimizer = optimizers.Adam(embedding_regression.parameters())
     for epoch in range(args.epochs):
         # training
-        avocado.train()
+        embedding_regression.train()
         train_loss = 0.0
 
         start = time.time()
@@ -392,7 +411,7 @@ def main():
             for x, y in train_dataloader:
                 x, y = x.cuda(), y.cuda()
                 optimizer.zero_grad()
-                y_pred = avocado(x).reshape(-1)
+                y_pred = embedding_regression(x).reshape(-1)
                 loss = criterion(y, y_pred)
                 loss.backward()
                 optimizer.step()
@@ -400,22 +419,22 @@ def main():
         else:
             for x, y in train_dataloader:
                 optimizer.zero_grad()
-                y_pred = avocado(x).reshape(-1)
+                y_pred = embedding_regression(x).reshape(-1)
                 loss = criterion(y, y_pred)
                 loss.backward()
                 optimizer.step()
                 train_loss += loss.item()
 
         # validation
-        avocado.eval()
+        embedding_regression.eval()
         valid_loss = 0.0
         if torch.cuda.is_available():
             for x, y in valid_dataloader:
-                y_pred = avocado(x.cuda()).reshape(-1)
+                y_pred = embedding_regression(x.cuda()).reshape(-1)
                 valid_loss += criterion(y.cuda(), y_pred).item()
         else:
             for x, y in valid_dataloader:
-                y_pred = avocado(x).reshape(-1)
+                y_pred = embedding_regression(x).reshape(-1)
                 valid_loss += criterion(y, y_pred).item()
 
         train_loss /= len(train_dataloader)
@@ -431,7 +450,7 @@ def main():
         history_valid_loss.append(valid_loss)
 
         plot_history(history_train_loss, history_valid_loss, args.chrom)
-        torch.save(avocado.state_dict(), model_path)
+        torch.save(embedding_regression.state_dict(), model_path)
 
 
 if __name__ == '__main__':
