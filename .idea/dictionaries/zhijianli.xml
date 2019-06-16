@@ -2,6 +2,7 @@
   <dictionary name="zhijianli">
     <words>
       <w>dataloader</w>
+      <w>mpbs</w>
     </words>
   </dictionary>
 </component>

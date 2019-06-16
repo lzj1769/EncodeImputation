@@ -367,19 +367,19 @@ def main():
     if torch.cuda.is_available():
         for x, y in train_dataloader:
             y_pred = embedding_regression(x.cuda()).reshape(-1)
-            ini_train_loss += criterion(y.cuda(), y_pred).item()
+            ini_train_loss += criterion(y_pred, y.cuda()).item()
 
         for x, y in valid_dataloader:
             y_pred = embedding_regression(x.cuda()).reshape(-1)
-            ini_valid_loss += criterion(y.cuda(), y_pred).item()
+            ini_valid_loss += criterion(y_pred, y.cuda()).item()
     else:
         for x, y in train_dataloader:
             y_pred = embedding_regression(x).reshape(-1)
-            ini_train_loss += criterion(y, y_pred).item()
+            ini_train_loss += criterion(y_pred, y).item()
 
         for x, y in valid_dataloader:
             y_pred = embedding_regression(x).reshape(-1)
-            ini_valid_loss += criterion(y, y_pred).item()
+            ini_valid_loss += criterion(y_pred, y).item()
 
     ini_train_loss /= len(train_dataloader)
     ini_valid_loss /= len(valid_dataloader)
@@ -406,7 +406,7 @@ def main():
                 x, y = x.cuda(), y.cuda()
                 optimizer.zero_grad()
                 y_pred = embedding_regression(x).reshape(-1)
-                loss = criterion(y, y_pred)
+                loss = criterion(y_pred, y)
                 loss.backward()
                 optimizer.step()
                 train_loss += loss.item()
@@ -414,7 +414,7 @@ def main():
             for x, y in train_dataloader:
                 optimizer.zero_grad()
                 y_pred = embedding_regression(x).reshape(-1)
-                loss = criterion(y, y_pred)
+                loss = criterion(y_pred, y)
                 loss.backward()
                 optimizer.step()
                 train_loss += loss.item()
@@ -425,11 +425,11 @@ def main():
         if torch.cuda.is_available():
             for x, y in valid_dataloader:
                 y_pred = embedding_regression(x.cuda()).reshape(-1)
-                valid_loss += criterion(y.cuda(), y_pred).item()
+                valid_loss += criterion(y_pred, y.cuda()).item()
         else:
             for x, y in valid_dataloader:
                 y_pred = embedding_regression(x).reshape(-1)
-                valid_loss += criterion(y, y_pred).item()
+                valid_loss += criterion(y_pred, y).item()
 
         train_loss /= len(train_dataloader)
         valid_loss /= len(valid_dataloader)

@@ -14,14 +14,13 @@ import torch
 from torch import nn
 import torch.optim as optimizers
 from torch.nn import functional as F
-from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader, Dataset
 
 training_data_tsv = "/hpcwork/izkf/projects/ENCODEImputation/local/TSV/metadata_training_data.tsv"
 validation_data_tsv = "/hpcwork/izkf/projects/ENCODEImputation/local/TSV/metadata_validation_data.tsv"
 
-training_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFilesArcSinh/training_data"
-validation_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFilesArcSinh/validation_data"
+training_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFilesBinary/training_data"
+validation_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFilesBinary/validation_data"
 
 model_loc = "/hpcwork/izkf/projects/ENCODEImputation/exp/Li/Models/EmbeddingClassification"
 vis_loc = "/home/rs619065/EncodeImputation/vis/EmbeddingClassification"
@@ -122,8 +121,7 @@ class EmbeddingClassification(nn.Module):
 
         self.linear1 = nn.Linear(in_features, n_hidden_units)
         self.linear2 = nn.Linear(n_hidden_units, n_hidden_units)
-        self.linear3 = nn.Linear(n_hidden_units, 1)
-        self.out = nn.Sigmoid()
+        self.linear_out = nn.Linear(n_hidden_units, 1)
         self.dropout = nn.Dropout(0.5)
 
     def forward(self, x):
@@ -142,8 +140,7 @@ class EmbeddingClassification(nn.Module):
         x = F.relu(self.linear1(inputs))
         x = self.dropout(x)
         x = F.relu(self.linear2(x))
-        x = self.linear3(x)
-        out = self.out(x)
+        out = self.linear_out(x)
 
         return out
 
@@ -259,7 +256,7 @@ def main():
     print('training data: %d' % (len(train_dataloader)))
     print('validation data: %d' % (len(valid_dataloader)))
 
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.BCEWithLogitsLoss()
 
     history_train_loss = list()
     history_valid_loss = list()
@@ -274,19 +271,19 @@ def main():
     if torch.cuda.is_available():
         for x, y in train_dataloader:
             y_pred = embedding_classification(x.cuda()).reshape(-1)
-            ini_train_loss += criterion(y.cuda(), y_pred).item()
+            ini_train_loss += criterion(y_pred, y.cuda()).item()
 
         for x, y in valid_dataloader:
             y_pred = embedding_classification(x.cuda()).reshape(-1)
-            ini_valid_loss += criterion(y.cuda(), y_pred).item()
+            ini_valid_loss += criterion(y_pred, y.cuda()).item()
     else:
         for x, y in train_dataloader:
             y_pred = embedding_classification(x).reshape(-1)
-            ini_train_loss += criterion(y, y_pred).item()
+            ini_train_loss += criterion(y_pred, y).item()
 
         for x, y in valid_dataloader:
             y_pred = embedding_classification(x).reshape(-1)
-            ini_valid_loss += criterion(y, y_pred).item()
+            ini_valid_loss += criterion(y_pred, y).item()
 
     ini_train_loss /= len(train_dataloader)
     ini_valid_loss /= len(valid_dataloader)
@@ -313,7 +310,7 @@ def main():
                 x, y = x.cuda(), y.cuda()
                 optimizer.zero_grad()
                 y_pred = embedding_classification(x).reshape(-1)
-                loss = criterion(y, y_pred)
+                loss = criterion(y_pred, y)
                 loss.backward()
                 optimizer.step()
                 train_loss += loss.item()
@@ -321,7 +318,7 @@ def main():
             for x, y in train_dataloader:
                 optimizer.zero_grad()
                 y_pred = embedding_classification(x).reshape(-1)
-                loss = criterion(y, y_pred)
+                loss = criterion(y_pred, y)
                 loss.backward()
                 optimizer.step()
                 train_loss += loss.item()
@@ -332,11 +329,11 @@ def main():
         if torch.cuda.is_available():
             for x, y in valid_dataloader:
                 y_pred = embedding_classification(x.cuda()).reshape(-1)
-                valid_loss += criterion(y.cuda(), y_pred).item()
+                valid_loss += criterion(y_pred, y.cuda()).item()
         else:
             for x, y in valid_dataloader:
                 y_pred = embedding_classification(x).reshape(-1)
-                valid_loss += criterion(y, y_pred).item()
+                valid_loss += criterion(y_pred, y).item()
 
         train_loss /= len(train_dataloader)
         valid_loss /= len(valid_dataloader)
