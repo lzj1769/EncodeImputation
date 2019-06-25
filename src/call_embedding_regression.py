@@ -10,7 +10,7 @@ chrom_list = ['chr1', 'chr2', 'chr3',
               'chr16', 'chr17', 'chr18',
               'chr19', 'chr20', 'chr21',
               'chr22', 'chrX']
-
+chrom_list = ['chrX']
 for chrom in chrom_list:
     job_name = "embedding_regression_{}".format(chrom)
     command = "sbatch -J " + job_name + " -o " + "./cluster_out/" + job_name + "_out.txt -e " + \

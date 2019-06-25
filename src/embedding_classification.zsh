@@ -15,5 +15,5 @@ export LD_LIBRARY_PATH=/home/rs619065/local/lib:$LD_LIBRARY_PATH
 
 source ~/miniconda2/bin/activate py36env
 
-python embedding_classification.py -c $1 -e 100
+python embedding_classification.py -c $1 -e 300
 

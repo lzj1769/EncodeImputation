@@ -1,0 +1,4 @@
+/home/rs619065/miniconda2/envs/py36env/lib/python3.6/site-packages/matplotlib/figure.py:98: MatplotlibDeprecationWarning: 
+Adding an axes using the same arguments as a previous axes currently reuses the earlier instance.  In a future version, a new instance will always be created and returned.  Meanwhile, this warning can be suppressed, and the future behavior ensured, by passing a unique label to each axes instance.
+  "Adding an axes using the same arguments as a previous axes "
+slurmstepd: error: *** JOB 3307552 ON nrg03 CANCELLED AT 2019-06-21T23:07:26 DUE TO TIME LIMIT ***
