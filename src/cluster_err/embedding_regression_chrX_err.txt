@@ -1,4 +1,15 @@
-/home/rs619065/miniconda2/envs/py36env/lib/python3.6/site-packages/matplotlib/figure.py:98: MatplotlibDeprecationWarning: 
-Adding an axes using the same arguments as a previous axes currently reuses the earlier instance.  In a future version, a new instance will always be created and returned.  Meanwhile, this warning can be suppressed, and the future behavior ensured, by passing a unique label to each axes instance.
-  "Adding an axes using the same arguments as a previous axes "
-slurmstepd: error: *** JOB 3433561 ON ncg38 CANCELLED AT 2019-06-25T16:37:25 ***
+TERM environment variable not set.
+Traceback (most recent call last):
+  File "embedding_regression.py", line 361, in <module>
+    main()
+  File "embedding_regression.py", line 240, in main
+    embedding_regression.cuda()
+  File "/home/rs619065/miniconda2/envs/py36env/lib/python3.6/site-packages/torch/nn/modules/module.py", line 265, in cuda
+    return self._apply(lambda t: t.cuda(device))
+  File "/home/rs619065/miniconda2/envs/py36env/lib/python3.6/site-packages/torch/nn/modules/module.py", line 193, in _apply
+    module._apply(fn)
+  File "/home/rs619065/miniconda2/envs/py36env/lib/python3.6/site-packages/torch/nn/modules/module.py", line 199, in _apply
+    param.data = fn(param.data)
+  File "/home/rs619065/miniconda2/envs/py36env/lib/python3.6/site-packages/torch/nn/modules/module.py", line 265, in <lambda>
+    return self._apply(lambda t: t.cuda(device))
+RuntimeError: CUDA error: out of memory

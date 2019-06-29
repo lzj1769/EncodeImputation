@@ -14,7 +14,6 @@ import torch
 from torch import nn
 import torch.optim as optimizers
 from torch.nn import functional as F
-from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader, Dataset
 
 training_data_tsv = "/hpcwork/izkf/projects/ENCODEImputation/local/TSV/metadata_training_data.tsv"
@@ -59,7 +58,7 @@ def parse_args():
     parser.add_argument("-e", "--epochs", type=int, default=30)
     parser.add_argument("-s", "--seed", type=int, default=2019)
     parser.add_argument("-v", "--verbose", type=int, default=0)
-    parser.add_argument("-w", "--num_workers", type=int, default=24)
+    parser.add_argument("-w", "--num_workers", type=int, default=12)
 
     return parser.parse_args()
 
@@ -186,101 +185,6 @@ class EncodeImputationDataset(Dataset):
         return torch.as_tensor(x), self.data[cell_index][assay_index][genomic_25bp_index]
 
 
-class ReduceLROnPlateau(object):
-    """Reduce learning rate when a metric has stopped improving.
-    Models often benefit from reducing the learning rate by a factor
-    of 2-10 once learning stagnates. This scheduler reads a metrics
-    quantity and if no improvement is seen for a 'patience' number
-    of epochs, the learning rate is reduced.
-
-    Args:
-        factor: factor by which the learning rate will
-            be reduced. new_lr = lr * factor
-        patience: number of epochs with no improvement
-            after which learning rate will be reduced.
-        verbose: int. 0: quiet, 1: update messages.
-        mode: one of {min, max}. In `min` mode,
-            lr will be reduced when the quantity
-            monitored has stopped decreasing; in `max`
-            mode it will be reduced when the quantity
-            monitored has stopped increasing.
-        epsilon: threshold for measuring the new optimum,
-            to only focus on significant changes.
-        cooldown: number of epochs to wait before resuming
-            normal operation after lr has been reduced.
-        min_lr: lower bound on the learning rate.
-    """
-
-    def __init__(self, optimizer, mode='min', factor=0.1, patience=10,
-                 verbose=0, epsilon=1e-4, cooldown=0, min_lr=0.0):
-        super(ReduceLROnPlateau, self).__init__()
-
-        if factor >= 1.0:
-            raise ValueError('ReduceLROnPlateau '
-                             'does not support a factor >= 1.0.')
-        self.factor = factor
-        self.min_lr = min_lr
-        self.epsilon = epsilon
-        self.patience = patience
-        self.verbose = verbose
-        self.cooldown = cooldown
-        self.cooldown_counter = 0  # Cooldown counter.
-        self.monitor_op = None
-        self.wait = 0
-        self.best = 0
-        self.mode = mode
-        assert isinstance(optimizer, Optimizer)
-        self.optimizer = optimizer
-        self._reset()
-
-    def _reset(self):
-        """Resets wait counter and cooldown counter.
-        """
-        if self.mode not in ['min', 'max']:
-            raise RuntimeError('Learning Rate Plateau Reducing mode %s is unknown!')
-        if self.mode == 'min':
-            self.monitor_op = lambda a, b: np.less(a, b - self.epsilon)
-            self.best = np.Inf
-        else:
-            self.monitor_op = lambda a, b: np.greater(a, b + self.epsilon)
-            self.best = -np.Inf
-        self.cooldown_counter = 0
-        self.wait = 0
-        self.lr_epsilon = self.min_lr * 1e-4
-
-    def reset(self):
-        self._reset()
-
-    def step(self, metrics, epoch):
-        current = metrics
-        if current is None:
-            warnings.warn('Learning Rate Plateau Reducing requires metrics available!', RuntimeWarning)
-        else:
-            if self.in_cooldown():
-                self.cooldown_counter -= 1
-                self.wait = 0
-
-            if self.monitor_op(current, self.best):
-                self.best = current
-                self.wait = 0
-            elif not self.in_cooldown():
-                if self.wait >= self.patience:
-                    for param_group in self.optimizer.param_groups:
-                        old_lr = float(param_group['lr'])
-                        if old_lr > self.min_lr + self.lr_epsilon:
-                            new_lr = old_lr * self.factor
-                            new_lr = max(new_lr, self.min_lr)
-                            param_group['lr'] = new_lr
-                            if self.verbose > 0:
-                                print('\nEpoch %05d: reducing learning rate to %s.' % (epoch, new_lr))
-                            self.cooldown_counter = self.cooldown
-                            self.wait = 0
-                self.wait += 1
-
-    def in_cooldown(self):
-        return self.cooldown_counter > 0
-
-
 def plot_history(train_loss, valid_loss, chrom):
     plt.subplot(1, 2, 1)
     plt.plot(train_loss)
@@ -313,6 +217,9 @@ def main():
 
     cells, assays = get_cells_assays()
 
+    print(cells)
+    print(assays)
+
     n_positions_25bp = chrom_size_dict[args.chrom]
 
     n_positions_250bp, n_positions_5kbp = n_positions_25bp // 10 + 1, n_positions_25bp // 200 + 1
@@ -325,8 +232,8 @@ def main():
                                                n_positions_250bp=n_positions_250bp,
                                                n_positions_5kbp=n_positions_5kbp)
 
-    if os.path.exists(model_path):
-        embedding_regression.load_state_dict(torch.load(model_path))
+    #if os.path.exists(model_path):
+    #    embedding_regression.load_state_dict(torch.load(model_path))
 
     if torch.cuda.is_available():
         embedding_regression.cuda()
