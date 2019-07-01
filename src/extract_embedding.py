@@ -6,7 +6,7 @@ import pandas as pd
 training_data_tsv = "/hpcwork/izkf/projects/ENCODEImputation/local/TSV/metadata_training_data.tsv"
 validation_data_tsv = "/hpcwork/izkf/projects/ENCODEImputation/local/TSV/metadata_validation_data.tsv"
 
-model_loc = "/home/rs619065/EncodeImputation/EmbeddingRegression"
+model_loc = "/hpcwork/izkf/projects/ENCODEImputation/exp/Li/Models/EmbeddingRegression"
 output_loc = "/home/rs619065/EncodeImputation/EmbeddingMatrix"
 
 

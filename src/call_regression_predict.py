@@ -3,7 +3,7 @@ from __future__ import print_function
 import os
 
 validation_data_tsv = "/hpcwork/izkf/projects/ENCODEImputation/local/TSV/metadata_validation_data.tsv"
-output_loc = "/work/rwth0233/ENCODEImputation/Prediction/EmbeddingRegression/validation/NPY"
+output_loc = "/hpcwork/izkf/projects/ENCODEImputation/exp/Li/Prediction/EmbeddingRegression/validation/NPY"
 cells = []
 assays = []
 f = open(validation_data_tsv)

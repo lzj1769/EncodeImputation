@@ -18,13 +18,9 @@ from torch.utils.data import DataLoader, Dataset
 training_data_tsv = "/hpcwork/izkf/projects/ENCODEImputation/local/TSV/metadata_training_data.tsv"
 validation_data_tsv = "/hpcwork/izkf/projects/ENCODEImputation/local/TSV/metadata_validation_data.tsv"
 
-# training_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFilesArcSinh/training_data"
-# validation_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFilesArcSinh/validation_data"
-# model_loc = "/hpcwork/izkf/projects/ENCODEImputation/exp/Li/Models/EmbeddingRegression"
-
-training_data_loc = "/hpcwork/rwth0233/ENCODEImputation/local/NPYFilesArcSinh/training_data"
-validation_data_loc = "/hpcwork/rwth0233/ENCODEImputation/local/NPYFilesArcSinh/validation_data"
-model_loc = "/home/rs619065/EncodeImputation/EmbeddingRegression"
+training_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFilesArcSinh/training_data"
+validation_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFilesArcSinh/validation_data"
+model_loc = "/hpcwork/izkf/projects/ENCODEImputation/exp/Li/Models/EmbeddingRegression"
 
 vis_loc = "/home/rs619065/EncodeImputation/vis/EmbeddingRegression"
 history_loc = "/home/rs619065/EncodeImputation/history/EmbeddingRegression"
@@ -223,9 +219,6 @@ def main():
 
     cells, assays = get_cells_assays()
 
-    print(cells)
-    print(assays)
-
     n_positions_25bp = chrom_size_dict[args.chrom]
 
     n_positions_250bp, n_positions_5kbp = n_positions_25bp // 10 + 1, n_positions_25bp // 200 + 1
@@ -238,10 +231,9 @@ def main():
                                                n_positions_250bp=n_positions_250bp,
                                                n_positions_5kbp=n_positions_5kbp)
 
+    embedding_regression.load_state_dict(torch.load(model_path, map_location='cpu'))
     if torch.cuda.is_available():
-        embedding_regression.load_state_dict(torch.load(model_path))
-    else:
-        embedding_regression.load_state_dict(torch.load(model_path, map_location='cpu'))
+        embedding_regression.cuda()
 
     pathlib.Path(model_loc).mkdir(parents=True, exist_ok=True)
     pathlib.Path(vis_loc).mkdir(parents=True, exist_ok=True)
@@ -274,8 +266,8 @@ def main():
     ini_valid_loss = 0
 
     start = time.time()
-
     embedding_regression.eval()
+
     if torch.cuda.is_available():
         for x, y in train_dataloader:
             y_pred = embedding_regression(x.cuda()).reshape(-1)

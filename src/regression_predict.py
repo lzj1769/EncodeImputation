@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, Dataset
 training_data_tsv = "/hpcwork/izkf/projects/ENCODEImputation/local/TSV/metadata_training_data.tsv"
 validation_data_tsv = "/hpcwork/izkf/projects/ENCODEImputation/local/TSV/metadata_validation_data.tsv"
 
-model_loc = "/home/rs619065/EncodeImputation/EmbeddingRegression"
+model_loc = "/hpcwork/izkf/projects/ENCODEImputation/exp/Li/Models/EmbeddingRegression"
 
 chrom_size_dict = {'chr1': 9958247,
                    'chr2': 9687698,
@@ -179,7 +179,6 @@ def predict(cell, assay, chrom, batch_size, num_workers):
     else:
         embedding_regression.load_state_dict(torch.load(model_path, map_location='cpu'))
 
-    pathlib.Path(model_loc).mkdir(parents=True, exist_ok=True)
     dataset = EncodeImputationDataset(cell_index=cell_index, assay_index=assay_index, n_positions_25bp=n_positions_25bp)
     dataloader = DataLoader(dataset=dataset, shuffle=False, pin_memory=True,
                             batch_size=batch_size, num_workers=num_workers, drop_last=False)
