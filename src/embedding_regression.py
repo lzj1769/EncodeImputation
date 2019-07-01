@@ -3,7 +3,6 @@ import argparse
 import numpy as np
 import random
 import time
-import warnings
 import pathlib
 import matplotlib
 
@@ -19,10 +18,14 @@ from torch.utils.data import DataLoader, Dataset
 training_data_tsv = "/hpcwork/izkf/projects/ENCODEImputation/local/TSV/metadata_training_data.tsv"
 validation_data_tsv = "/hpcwork/izkf/projects/ENCODEImputation/local/TSV/metadata_validation_data.tsv"
 
-training_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFilesArcSinh/training_data"
-validation_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFilesArcSinh/validation_data"
+# training_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFilesArcSinh/training_data"
+# validation_data_loc = "/hpcwork/izkf/projects/ENCODEImputation/local/NPYFilesArcSinh/validation_data"
+# model_loc = "/hpcwork/izkf/projects/ENCODEImputation/exp/Li/Models/EmbeddingRegression"
 
-model_loc = "/hpcwork/izkf/projects/ENCODEImputation/exp/Li/Models/EmbeddingRegression"
+training_data_loc = "/hpcwork/rwth0233/ENCODEImputation/local/NPYFilesArcSinh/training_data"
+validation_data_loc = "/hpcwork/rwth0233/ENCODEImputation/local/NPYFilesArcSinh/validation_data"
+model_loc = "/home/rs619065/EncodeImputation/EmbeddingRegression"
+
 vis_loc = "/home/rs619065/EncodeImputation/vis/EmbeddingRegression"
 history_loc = "/home/rs619065/EncodeImputation/history/EmbeddingRegression"
 
@@ -202,10 +205,13 @@ def plot_history(train_loss, valid_loss, chrom):
 def write_history(train_loss, valid_loss, chrom):
     output_filename = os.path.join(history_loc, "{}.txt".format(chrom))
 
-    with open(output_filename, "w") as f:
-        f.write("TrainLoss" + "\t" + "ValidLoss" + "\n")
-        for i, loss in enumerate(train_loss):
-            f.write(str(train_loss[i]) + "\t" + str(valid_loss[i]) + "\n")
+    if os.path.exists(output_filename):
+        with open(output_filename, "a") as f:
+            f.write(str(train_loss) + "\t" + str(valid_loss) + "\n")
+    else:
+        with open(output_filename, "w") as f:
+            f.write("TrainLoss" + "\t" + "ValidLoss" + "\n")
+            f.write(str(train_loss) + "\t" + str(valid_loss) + "\n")
 
 
 def main():
@@ -232,11 +238,10 @@ def main():
                                                n_positions_250bp=n_positions_250bp,
                                                n_positions_5kbp=n_positions_5kbp)
 
-    #if os.path.exists(model_path):
-    #    embedding_regression.load_state_dict(torch.load(model_path))
-
     if torch.cuda.is_available():
-        embedding_regression.cuda()
+        embedding_regression.load_state_dict(torch.load(model_path))
+    else:
+        embedding_regression.load_state_dict(torch.load(model_path, map_location='cpu'))
 
     pathlib.Path(model_loc).mkdir(parents=True, exist_ok=True)
     pathlib.Path(vis_loc).mkdir(parents=True, exist_ok=True)
@@ -351,7 +356,7 @@ def main():
         history_valid_loss.append(valid_loss)
 
         plot_history(history_train_loss, history_valid_loss, args.chrom)
-        write_history(history_train_loss, history_valid_loss, args.chrom)
+        write_history(train_loss, valid_loss, args.chrom)
 
         torch.save(embedding_regression.state_dict(), model_path)
 

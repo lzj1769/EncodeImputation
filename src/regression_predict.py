@@ -14,8 +14,6 @@ training_data_tsv = "/hpcwork/izkf/projects/ENCODEImputation/local/TSV/metadata_
 validation_data_tsv = "/hpcwork/izkf/projects/ENCODEImputation/local/TSV/metadata_validation_data.tsv"
 
 model_loc = "/home/rs619065/EncodeImputation/EmbeddingRegression"
-training_prediction_loc = "/work/rwth0233/ENCODEImputation/Prediction/EmbeddingRegression/training"
-validation_prediction_loc = "/work/rwth0233/ENCODEImputation/Prediction/EmbeddingRegression/validation"
 
 chrom_size_dict = {'chr1': 9958247,
                    'chr2': 9687698,
@@ -47,6 +45,7 @@ def parse_args():
     parser.add_argument("-chr", "--chrom", type=str, default=None)
     parser.add_argument("-c", "--cell", type=str, default=None)
     parser.add_argument("-a", "--assay", type=str, default=None)
+    parser.add_argument("-o", "--output_loc", type=str, default=None)
     parser.add_argument("-bs", "--batch_size", type=int, default=40000)
     parser.add_argument("-s", "--seed", type=int, default=2019)
     parser.add_argument("-v", "--verbose", type=int, default=0)
@@ -157,24 +156,17 @@ class EncodeImputationDataset(Dataset):
         return torch.as_tensor(x)
 
 
-def main():
-    args = parse_args()
-
-    if args.chrom is None:
-        args.chrom = chrom_size_dict.keys()
-
-    seed_torch(seed=args.seed)
-
+def predict(cell, assay, chrom, batch_size, num_workers):
     cells, assays = get_cells_assays()
 
-    cell_index = cells.index(args.cell)
-    assay_index = assays.index(args.assay)
+    cell_index = cells.index(cell)
+    assay_index = assays.index(assay)
 
-    n_positions_25bp = chrom_size_dict[args.chrom]
+    n_positions_25bp = chrom_size_dict[chrom]
 
     n_positions_250bp, n_positions_5kbp = n_positions_25bp // 10 + 1, n_positions_25bp // 200 + 1
 
-    model_path = os.path.join(model_loc, "{}.pth".format(args.chrom))
+    model_path = os.path.join(model_loc, "{}.pth".format(chrom))
 
     embedding_regression = EmbeddingRegression(n_cells=len(cells),
                                                n_assays=len(assays),
@@ -190,10 +182,7 @@ def main():
     pathlib.Path(model_loc).mkdir(parents=True, exist_ok=True)
     dataset = EncodeImputationDataset(cell_index=cell_index, assay_index=assay_index, n_positions_25bp=n_positions_25bp)
     dataloader = DataLoader(dataset=dataset, shuffle=False, pin_memory=True,
-                            batch_size=args.batch_size,
-                            num_workers=args.num_workers, drop_last=False)
-
-    start = time.time()
+                            batch_size=batch_size, num_workers=num_workers, drop_last=False)
 
     embedding_regression.eval()
     pred = np.empty(0)
@@ -207,8 +196,26 @@ def main():
             y_pred = embedding_regression(x).reshape(-1)
             pred = np.append(pred, y_pred.detach().numpy())
 
-    filename = os.path.join(training_prediction_loc, "{}{}_{}".format(args.cell, args.assay, args.chrom))
-    np.save(filename, np.sinh(pred))
+    return np.sinh(pred)
+
+
+def main():
+    args = parse_args()
+
+    if args.chrom is None:
+        args.chrom = chrom_size_dict.keys()
+
+    seed_torch(seed=args.seed)
+
+    start = time.time()
+
+    pred = dict()
+    for chrom in args.chrom:
+        pred[chrom] = predict(cell=args.cell, assay=args.assay, chrom=chrom, batch_size=args.batch_size,
+                              num_workers=args.num_workers)
+
+    filename = os.path.join(args.output_loc, "{}{}".format(args.cell, args.assay))
+    np.save(filename, pred)
     secs = time.time() - start
     m, s = divmod(secs, 60)
     h, m = divmod(m, 60)
