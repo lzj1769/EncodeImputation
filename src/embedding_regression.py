@@ -57,7 +57,7 @@ def parse_args():
     parser.add_argument("-e", "--epochs", type=int, default=30)
     parser.add_argument("-s", "--seed", type=int, default=2019)
     parser.add_argument("-v", "--verbose", type=int, default=0)
-    parser.add_argument("-w", "--num_workers", type=int, default=12)
+    parser.add_argument("-w", "--num_workers", type=int, default=24)
 
     return parser.parse_args()
 
