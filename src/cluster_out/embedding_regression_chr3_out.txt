@@ -323,3 +323,5 @@ epoch: 5, training loss: 0.07824279, validation loss: 0.13104103, time: 1h 32m 7
 epoch: 6, training loss: 0.07821375, validation loss: 0.13246377, time: 1h 33m 14s
 epoch: 7, training loss: 0.07818042, validation loss: 0.13140962, time: 1h 32m 20s
 epoch: 8, training loss: 0.07814204, validation loss: 0.12998976, time: 1h 32m 22s
+epoch: 9, training loss: 0.07810896, validation loss: 0.13020690, time: 1h 32m 35s
+epoch: 10, training loss: 0.07808115, validation loss: 0.13065671, time: 1h 32m 8s
