@@ -397,3 +397,13 @@ epoch: 79, training loss: 0.04394189, validation loss: 0.07681765, time: 1h 8m 5
 epoch: 80, training loss: 0.04390599, validation loss: 0.07629235, time: 1h 8m 44s
 epoch: 81, training loss: 0.04387629, validation loss: 0.07680254, time: 1h 8m 43s
 epoch: 82, training loss: 0.04384411, validation loss: 0.07643739, time: 1h 8m 36s
+epoch: 83, training loss: 0.04381622, validation loss: 0.07672549, time: 1h 9m 0s
+epoch: 84, training loss: 0.04379060, validation loss: 0.07707626, time: 1h 8m 54s
+epoch: 85, training loss: 0.04376233, validation loss: 0.07678977, time: 1h 9m 25s
+epoch: 86, training loss: 0.04373150, validation loss: 0.07644233, time: 1h 9m 41s
+epoch: 87, training loss: 0.04371060, validation loss: 0.07692187, time: 1h 8m 56s
+epoch: 88, training loss: 0.04368439, validation loss: 0.07660614, time: 1h 9m 45s
+epoch: 89, training loss: 0.04365542, validation loss: 0.07712758, time: 1h 9m 16s
+epoch: 90, training loss: 0.04363387, validation loss: 0.07666864, time: 1h 10m 25s
+epoch: 91, training loss: 0.04361362, validation loss: 0.07681437, time: 1h 8m 51s
+epoch: 92, training loss: 0.04358974, validation loss: 0.07685654, time: 1h 10m 32s

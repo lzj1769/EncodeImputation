@@ -23,11 +23,11 @@ history_loc = "/home/rs619065/EncodeImputation/history/EncodeImputationNet"
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-chr", "--chrom", type=str, default=None)
-    parser.add_argument("-bs", "--batch_size", type=int, default=20480)
+    parser.add_argument("-bs", "--batch_size", type=int, default=40000)
     parser.add_argument("-e", "--epochs", type=int, default=30)
     parser.add_argument("-s", "--seed", type=int, default=2019)
     parser.add_argument("-v", "--verbose", type=int, default=0)
-    parser.add_argument("-w", "--num_workers", type=int, default=8)
+    parser.add_argument("-w", "--num_workers", type=int, default=4)
 
     return parser.parse_args()
 
@@ -107,14 +107,14 @@ class EncodeImputationDataset(Dataset):
 
     def __init__(self, x, y):
         self.x = torch.as_tensor(x)
-        self.y = torch.as_tensor(y)
+        self.y = torch.as_tensor(y, dtype=torch.float32)
         self.length = len(y)
 
     def __len__(self):
         return self.length
 
     def __getitem__(self, index):
-        return self.x[index], self.y[index]
+        return self.x[index].type(torch.int64), self.y[index]
 
 
 def write_history(train_loss, valid_loss, chrom):
@@ -161,16 +161,16 @@ def main():
     pathlib.Path(history_loc).mkdir(parents=True, exist_ok=True)
 
     print("loading data...")
-    train_x = np.load(os.path.join(training_data_loc, "{}_x.npy".format(args.chrom)))
-    train_y = np.load(os.path.join(training_data_loc, "{}_y.npy".format(args.chrom)))
-    valid_x = np.load(os.path.join(validation_data_loc, "{}_x.npy".format(args.chrom)))
-    valid_y = np.load(os.path.join(validation_data_loc, "{}_y.npy".format(args.chrom)))
+    train_x = np.load(os.path.join(training_data_loc, "{}_x.npy".format(args.chrom)), mmap_mode='r')
+    train_y = np.load(os.path.join(training_data_loc, "{}_y.npy".format(args.chrom)), mmap_mode='r')
+    valid_x = np.load(os.path.join(validation_data_loc, "{}_x.npy".format(args.chrom)), mmap_mode='r')
+    valid_y = np.load(os.path.join(validation_data_loc, "{}_y.npy".format(args.chrom)), mmap_mode='r')
 
     train_dataset = EncodeImputationDataset(x=train_x, y=train_y)
     valid_dataset = EncodeImputationDataset(x=valid_x, y=valid_y)
 
     print("creating dataloader...")
-    train_dataloader = DataLoader(dataset=train_dataset, shuffle=False, pin_memory=True,
+    train_dataloader = DataLoader(dataset=train_dataset, shuffle=True, pin_memory=True,
                                   batch_size=args.batch_size, num_workers=args.num_workers, drop_last=False)
 
     valid_dataloader = DataLoader(dataset=valid_dataset, shuffle=False, pin_memory=True,
@@ -185,7 +185,6 @@ def main():
         # training
         encode_net.train()
         train_loss = 0.0
-
         start = time.time()
         for x, y in train_dataloader:
             x, y = x.cuda(), y.cuda()

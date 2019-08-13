@@ -15,5 +15,4 @@ export LD_LIBRARY_PATH=/home/rs619065/local/lib:$LD_LIBRARY_PATH
 
 source ~/miniconda2/bin/activate py36env
 
-
 python regression_predict.py -c $1 -a $2 -o $3

@@ -17,5 +17,5 @@ for i, chrom in enumerate(chrom_list):
     job_name = chrom
     command = "sbatch -J " + job_name + " -o " + "./cluster_out/" + job_name + "_out.txt -e " + \
               "./cluster_err/" + job_name + "_err.txt -t 10:00:00 --mem 180G"
-    command += "--partition=c18g -A rwth0233 -c 8 --gres=gpu:1 encode_net.zsh"
+    command += "--partition=c18g -c 4 -A rwth0233 --gres=gpu:1 encode_net.zsh"
     os.system(command + " " + chrom + " " + str(epoch_list[i]))
